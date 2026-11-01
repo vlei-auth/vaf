@@ -1,0 +1,10 @@
+title: vLEI Authenticator Framework (VAF)
+description: VAF 1.0 — Editor’s Draft
+url: https://vlei-auth.github.io
+baseurl: /vaf
+markdown: kramdown
+kramdown:
+  input: GFM
+  syntax_highlighter: rouge
+exclude:
+  - README.md
