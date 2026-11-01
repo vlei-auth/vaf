@@ -134,7 +134,7 @@ Valid reset intent record found at start-up     → ENTERPRISE_BOUND, resetEpoch
 Unrecognized or corrupted persistent data       → RECOVERY_REQUIRED
 ```
 
-The authenticator MUST treat missing or corrupted data in previously initialized storage as `RECOVERY_REQUIRED` and preserve that data. In `RECOVERY_REQUIRED`, the authenticator accepts only `GetInfo` and `Cancel`.
+The authenticator MUST treat missing or corrupted data in previously initialized storage as `RECOVERY_REQUIRED` and preserve that data. In `RECOVERY_REQUIRED`, the authenticator accepts only `GetInfo`, status-mode `GetState` and `Cancel`.
 
 ### 4.2 Personalization and enterprise governance
 
@@ -142,7 +142,7 @@ The authenticator MUST verify `TrustConfig` against the bound enterprise root, t
 
 ### 4.3 PIN and UP
 
-The device MUST enforce its own PIN retry limits with durable failed-attempt accounting, and MUST receive the PIN encrypted under VCAP `pinUvAuthProtocol 3` (X25519 key agreement, AES-256-CBC, HMAC-SHA256). VCAP 1.0 defines a persistent retry counter of 8, a power-cycle lockout after 3 consecutive failures, and `READ`, `SIGN` and `MANAGE` token permissions. PIN-derived material and tokens MUST be discarded when the context ends. Every signature by a slot key (`Sign` or `UploadEnd`) MUST consume its own new touch; `BindEnterprise` and `Personalize` also require a touch, and `Reset` requires a 5-second hold.
+The device MUST enforce its own PIN retry limits with durable failed-attempt accounting, and MUST receive the PIN encrypted under CTAP `pinUvAuthProtocol 2` (P-256 ECDH, HKDF-SHA-256, AES-256-CBC, HMAC-SHA-256), which VCAP `ClientPIN` uses unchanged. VCAP 1.0 defines a persistent retry counter of 8, a power-cycle lockout after 3 consecutive failures, and `READ`, `SIGN` and `MANAGE` token permissions placed above the CTAP permission bits. PIN-derived material and tokens MUST be discarded when the context ends. Every signature by a slot key (`Sign` or `UploadEnd`) MUST consume its own new user action, either a sensor press or, over NFC, the tap into the reader's field (one tap per field session); `BindEnterprise` and `Personalize` also require a touch, and `Reset` requires a 5-second hold.
 
 Wallets present a touch as confirmation of presence. Higher assurance for message content comes from independent, trusted content confirmation outside the displayless device together with server-side approval appropriate to the transaction.
 
@@ -267,15 +267,15 @@ Enterprise enrollment MUST authenticate the manufacturer attestation chain out o
 
 ### 10.1 Abstract authenticator interface
 
-VAF relies on these VCAP commands: `GetInfo`, `ClientPIN`, `Cancel`, `GetState`, `CreateIdentity`, `PrepareRotation`, `Sign`, `Recover`, `UploadBegin`/`UploadChunk`/`UploadEnd`, `BindEnterprise`, `Personalize` and `Reset`. VCAP assigns their command numbers and specifies exact parameters, error semantics, framing, context isolation and loss-of-response handling.
+VAF relies on these VCAP commands: `GetInfo`, `ClientPIN`, `Cancel`, `GetState`, `CreateIdentity`, `PrepareRotation`, `Sign`, `Recover`, `UploadBegin`/`UploadChunk`/`UploadEnd`, `BindEnterprise`, `Personalize` and `Reset`. VCAP assigns their command numbers and specifies exact parameters, error semantics, framing, context isolation and loss-of-response handling. `GetInfo`, `ClientPIN` and `Reset` use the CTAP command codes; the other commands use the CTAP vendor command range.
 
 ### 10.2 Transport bindings
 
-A conforming VAF authenticator MUST implement at least one conforming VCAP transport. VCAP 1.0 defines an ISO 7816-4 short-APDU binding, carried over USB CCID or NFC. A candidate additional USB binding carries **unchanged VCAP request/response bytes** in CTAPHID vendor-command frames; it uses CTAPHID as framing only and provides no CTAP2 or WebAuthn operations.
+A conforming VAF authenticator MUST implement at least one conforming VCAP transport. VCAP 1.0 carries its messages over the CTAP transports: CTAPHID over USB and ISO 7816-4 short APDUs over NFC under the FIDO AID. The authenticator therefore presents itself to the platform as a FIDO device. VCAP-specific operations use CTAP vendor commands, which generic WebAuthn clients do not send, so wallets reach them through a native CTAP stack. The authenticator also implements the standard CTAP operations and serves as a FIDO2 security key for WebAuthn sign-in; those FIDO credentials are separate from the KERI slots and are not attested with the VCAP attestation key (VCAP §7.13).
 
-### 10.3 CTAPHID candidate binding
+### 10.3 Sharing the authenticator with generic FIDO clients
 
-The CTAPHID binding is maintained in the separate [**VCAP CTAPHID Binding — Design Draft**](https://vlei-auth.github.io/vcap/ctaphid.html), which defines frame sizes, CIDs, `CTAPHID_INIT`, retransmission, vendor-command assignment, HID descriptors, keepalive and cancel behavior. The binding MUST preserve VCAP message semantics and MUST map the device's transport-linked contexts and their timeouts precisely. Products claim it as supported once it passes the `VAF-HID-1` tests (Section 12).
+Browsers and operating systems may send `GetInfo`, `ClientPIN` and `Reset` to the authenticator. A VCAP context is exclusive (held) only while its token carries a VCAP permission, a command is executing or an upload is in progress; other channels then receive `CTAP1_ERR_CHANNEL_BUSY`. A context created by a generic client that requests only CTAP permissions never blocks the wallet. A `Reset` sent by a generic client erases all identities on the authenticator; deployments MUST tell users that Reset requires a 5-second hold and what it erases.
 
 ## 11. Conformance profiles
 
@@ -295,14 +295,13 @@ An implementation claiming `VAF-BASE-1` MUST satisfy the following observable ca
 | VAF-BASE-08 | Exactly-once local KEL head advancement and latest-event signature recovery | `Recover` for the latest KEL event |
 | VAF-BASE-09 | Explicit reset epoch, irreversible reset and failure handling | `Reset`, `RECOVERY_REQUIRED` |
 | VAF-BASE-10 | Clear wallet/enterprise archival and network-verification boundary | Integration and negative tests |
-| VAF-BASE-11 | At least one conforming VCAP transport binding | ISO 7816-4 APDU over USB CCID or NFC |
+| VAF-BASE-11 | At least one conforming VCAP transport binding | CTAPHID over USB or ISO 7816-4 APDU over NFC |
 | VAF-BASE-12 | Documented security limits and privacy controls | Threat model and product disclosure |
 
 `VAF-BASE-1` covers single-key personal AIDs. Group operations, delegated events, on-device ACDC verification, anchored presentations, IPEX operation recovery and in-place enterprise root rotation belong to the candidate profiles below.
 
 ### 11.2 Candidate extension profiles
 
-- **VAF-HID-1** — VCAP over CTAPHID framing, once the companion binding is stable and tested.
 - **VAF-IPEX-1** — complete hardware-assisted IPEX Grant/Admit signing and operation-recovery semantics.
 - **VAF-GROUP-1** — participating-member keys, threshold/multisig workflow, group AID state and group-specific recovery.
 - **VAF-PRES-1** — signed/anchored presentation assurance and privacy-related disclosure requirements.
@@ -329,7 +328,7 @@ A future public test suite SHALL define machine-readable positive and negative t
 | BASE-T11 | Malformed persistent state leads to `RECOVERY_REQUIRED`. |
 | BASE-T12 | The verifier rejects missing credential status, an invalid chain or an unverified anchored claim. |
 
-VAF-HID-1 additionally requires CTAPHID channel allocation, multi-frame packet reconstruction, busy-state isolation, transport reset/cancel semantics, negative framing tests and cross-transport transaction-recovery tests.
+Transport tests additionally cover CTAPHID channel allocation, multi-frame packet reconstruction, busy-state isolation between held and non-held contexts, keepalive and cancel semantics, NFC command chaining, negative framing tests and cross-transport transaction-recovery tests.
 
 ## 13. Open issues and versioning
 
@@ -341,8 +340,7 @@ VAF-HID-1 additionally requires CTAPHID channel allocation, multi-frame packet r
 6. **Root and roles:** Enterprise root and role keys change only through device replacement or Reset; specify revocation and break-glass procedures.
 7. **Signature method:** VCAP 1.0 uses hedged Ed25519, deriving the nonce from RNG output and the Ticket digest, and produces signatures verifiable under RFC 8032. A cryptographic review should confirm the construction and define test vectors.
 8. **KERI version pinning:** BLAKE3 next-key commitments and event templates target the Veridian KERI implementation. A version-negotiation or compatibility-profile registry is needed.
-9. **HID binding:** Decide USB interface/usage, vendor command assignment, CTAPHID reset/keepalive semantics and the interaction with a shared APDU authenticator context.
-10. **Formal governance:** Define copyright, license and IPR terms and the change-control process before publication as a stable standard.
+9. **Formal governance:** Define copyright, license and IPR terms and the change-control process before publication as a stable standard.
 
 Changes to VAF identity/security semantics, VCAP command bytes and CTAPHID transport framing SHALL be tracked separately. Domain separators and codepoints change only through a versioned migration.
 
@@ -351,13 +349,14 @@ Changes to VAF identity/security semantics, VCAP command bytes and CTAPHID trans
 | VAF topic | VCAP 1.0 sections |
 | --- | --- |
 | Goals and threat model | §§ 1, 4.1, 13.1–13.2 |
-| Lifecycle and reset | §§ 4.2, 5, 8.10–8.12, 12.5–12.7 |
-| KERI slot and key state | §§ 5.2, 6.3–6.4, 8.5–8.7, 9.4, 9.7 |
-| PIN, token and user presence | §§ 5.3, 8.2, 9.1–9.2 |
-| Ticket, roles and attestation | §§ 9.3, 10.2–10.5, 12.8, Appendix B |
-| Recovery and integration | §§ 8.8, 12.2–12.4 |
-| Transport | § 7 (ISO 7816-4 APDU) |
-| Group, delegation and IPEX boundaries | §§ 5.2, 9.4.2, 9.5, 12.3 |
+| Lifecycle and reset | §§ 4.2, 5, 7.10–7.12, 12.5–12.7 |
+| KERI slot and key state | §§ 5.2, 6.3–6.4, 7.5–7.7, 8.4, 8.7 |
+| PIN, token and user presence | §§ 5.3, 7.2, 8.1–8.2 |
+| Ticket, roles and attestation | §§ 7.4, 8.3, 9.2–9.5, 12.8, Appendix B |
+| Recovery and integration | §§ 7.8, 12.2–12.4 |
+| Status codes | § 10 |
+| Transport | § 11 (11.1 message encoding, 11.2 CTAPHID, 11.3 NFC) |
+| Group, delegation and IPEX boundaries | §§ 5.2, 8.4.2, 8.5, 12.3 |
 
 ## B. References
 
