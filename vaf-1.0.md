@@ -133,9 +133,10 @@ ENTERPRISE_BOUND | PERSONALIZED_NO_PIN | PIN_READY + Reset
   (within 10 s of power-on, 5-second hold)      → ENTERPRISE_BOUND, resetEpoch + 1
 Valid reset intent record found at start-up     → ENTERPRISE_BOUND, resetEpoch + 1
 Unrecognized or corrupted persistent data       → RECOVERY_REQUIRED
+RECOVERY_REQUIRED + Reset (binding readable)    → ENTERPRISE_BOUND, resetEpoch + 1
 ```
 
-The authenticator MUST treat missing or corrupted data in previously initialized storage as `RECOVERY_REQUIRED` and preserve that data. In `RECOVERY_REQUIRED`, the authenticator accepts only `GetInfo`, status-mode `GetState` and `Cancel`.
+The authenticator MUST treat missing or corrupted data in previously initialized storage as `RECOVERY_REQUIRED` and preserve that data until a Reset. In `RECOVERY_REQUIRED`, the authenticator accepts only `GetInfo`, status-mode `GetState`, `Cancel` and `Reset`. Reset destroys the unreadable data and starts a new reset epoch while keeping the enterprise binding; if the binding itself is unreadable, the device requires offline maintenance.
 
 ### 4.2 Personalization and enterprise governance
 
@@ -143,7 +144,7 @@ The authenticator MUST verify `TrustConfig` against the bound enterprise root, t
 
 ### 4.3 PIN and UP
 
-The device MUST enforce its own PIN retry limits with durable failed-attempt accounting, and MUST receive the PIN encrypted under CTAP `pinUvAuthProtocol 2` (P-256 ECDH, HKDF-SHA-256, AES-256-CBC, HMAC-SHA-256), which VCAP `ClientPIN` uses unchanged. VCAP 1.0 defines a persistent retry counter of 8, a power-cycle lockout after 3 consecutive failures, and `READ`, `SIGN` and `MANAGE` token permissions placed above the CTAP permission bits. PIN-derived material and tokens MUST be discarded when the context ends. Every signature by a slot key (`Sign`, `UploadEnd`, or a signature requested through WebAuthn) MUST consume its own new user action, either a sensor press or, over NFC, the tap into the reader's field (one tap per field session); `BindEnterprise` and `Personalize` also require a touch, and `Reset` requires a 5-second hold.
+The device MUST enforce its own PIN retry limits with durable failed-attempt accounting, and MUST receive the PIN encrypted under CTAP `pinUvAuthProtocol 2` (P-256 ECDH, HKDF-SHA-256, AES-256-CBC, HMAC-SHA-256), which VCAP `ClientPIN` uses unchanged. VCAP 1.0 uses the CTAP PIN retry and power-cycle lockout rules, and adds `READ`, `SIGN` and `MANAGE` token permissions above the CTAP permission bits. PIN-derived material and tokens MUST be discarded when the context ends. Every signature by a slot key (`Sign`, `UploadEnd`, or a signature requested through WebAuthn) MUST consume its own new user action, either a sensor press or, over NFC, the tap into the reader's field (one tap per field session); `BindEnterprise` and `Personalize` also require a touch, and `Reset` requires a 5-second hold.
 
 Wallets present a touch as confirmation of presence. Higher assurance for message content comes from independent, trusted content confirmation outside the displayless device together with server-side approval appropriate to the transaction.
 
@@ -272,7 +273,7 @@ VAF relies on these VCAP commands: `GetInfo`, `ClientPIN`, `Cancel`, `GetState`,
 
 ### 10.2 Transport bindings
 
-A conforming VAF authenticator MUST implement at least one conforming VCAP transport. VCAP 1.0 carries its messages over the CTAP transports: CTAPHID over USB and ISO 7816-4 short APDUs over NFC under the FIDO AID. The authenticator therefore presents itself to the platform as a FIDO device. VCAP operations are reachable in two ways. Wallets with a native CTAP stack use the CTAP vendor commands. Web pages use the standard WebAuthn API: `navigator.credentials.create()` carries `CreateIdentity`, and `navigator.credentials.get()` carries `Sign`, `GetState`, `PrepareRotation` and `Recover`, marked by a private COSE algorithm identifier and payloads that browsers forward unchanged (VCAP §7.14). Only RP IDs listed in the enterprise-signed `TrustConfig` reach this route; to other sites the authenticator is an ordinary security key. Messages larger than the WebAuthn payload limit (1023 bytes) use the native route. The authenticator also implements the standard CTAP operations and serves as a FIDO2 security key for WebAuthn sign-in; those FIDO credentials are separate from the KERI slots and are not attested with the VCAP attestation key (VCAP §7.13).
+A conforming VAF authenticator MUST implement at least one conforming VCAP transport. VCAP 1.0 carries its messages over the CTAP 2.3 transports: CTAPHID over USB and the CTAP NFC binding. The authenticator therefore presents itself to the platform as a FIDO device. VCAP operations are reachable in two ways. Wallets with a native CTAP stack use the CTAP vendor commands. Web pages use the standard WebAuthn API: `navigator.credentials.create()` carries `CreateIdentity`, and `navigator.credentials.get()` carries `Sign`, `GetState`, `PrepareRotation` and `Recover`, marked by a private COSE algorithm identifier and payloads that browsers forward unchanged (VCAP §7.14). Only RP IDs listed in the enterprise-signed `TrustConfig` reach this route; to other sites the authenticator is an ordinary security key. Messages larger than the WebAuthn payload limit (1023 bytes) use the native route. The authenticator also implements the standard CTAP operations and serves as a FIDO2 security key for WebAuthn sign-in; those FIDO credentials are separate from the KERI slots and are not attested with the VCAP attestation key (VCAP §7.13).
 
 ### 10.3 Sharing the authenticator with generic FIDO clients
 
@@ -296,7 +297,7 @@ An implementation claiming `VAF-BASE-1` MUST satisfy the following observable ca
 | VAF-BASE-08 | Exactly-once local KEL head advancement and latest-event signature recovery | `Recover` for the latest KEL event |
 | VAF-BASE-09 | Explicit reset epoch, irreversible reset and failure handling | `Reset`, `RECOVERY_REQUIRED` |
 | VAF-BASE-10 | Clear wallet/enterprise archival and network-verification boundary | Integration and negative tests |
-| VAF-BASE-11 | At least one conforming VCAP transport binding | CTAPHID over USB or ISO 7816-4 APDU over NFC |
+| VAF-BASE-11 | At least one conforming VCAP transport binding | CTAPHID over USB or the CTAP NFC binding |
 | VAF-BASE-12 | Documented security limits and privacy controls | Threat model and product disclosure |
 
 `VAF-BASE-1` covers single-key personal AIDs. Group operations, delegated events, on-device ACDC verification, anchored presentations, IPEX operation recovery and in-place enterprise root rotation belong to the candidate profiles below.
@@ -339,7 +340,7 @@ Transport tests additionally cover CTAPHID channel allocation, multi-frame packe
 4. **Signed operation recovery:** The authenticator returns only the most recent non-KEL signature of each slot; IPEX Grant/Admit recovery needs stable operation identifiers and replay/commit evidence.
 5. **Attestation privacy:** Every `StateProof` carries all slots and a permanent device identifier. Define minimal proofs and queries in a future version.
 6. **Root and roles:** Enterprise root and role keys change only through device replacement or Reset; specify revocation and break-glass procedures.
-7. **Signature method:** VCAP 1.0 uses hedged Ed25519, deriving the nonce from RNG output and the Ticket digest, and produces signatures verifiable under RFC 8032. A cryptographic review should confirm the construction and define test vectors.
+7. **Signature method:** VCAP 1.0 requires Ed25519 signatures verifiable under RFC 8032 and leaves their computation, including nonce generation, to the implementation. A cryptographic review of each implementation should cover nonce generation, side channels and fault resistance, with test vectors.
 8. **KERI version pinning:** BLAKE3 next-key commitments and event templates target the Veridian KERI implementation. A version-negotiation or compatibility-profile registry is needed.
 9. **Browser compatibility:** The WebAuthn route (VCAP §7.14) depends on browsers and platform FIDO APIs (Chrome, Edge, Safari and Firefox on Windows, macOS, Android and iOS) forwarding unchanged: the private algorithm identifier, credential IDs of up to 1023 bytes, an `OKP` credential public key with a private label, and an opaque `signature`; and on how each handles silent `up=false` preflight requests. Each needs prototype validation. If platforms filter unknown algorithm identifiers, the fallback marks VCAP requests by the `"VC1"`/`"VQ1"` payload prefixes alone and uses EdDSA (-8) as the algorithm. The value -65700 is provisional.
 10. **Formal governance:** Define copyright, license and IPR terms and the change-control process before publication as a stable standard.
@@ -354,9 +355,9 @@ Changes to VAF identity/security semantics, VCAP command bytes and CTAPHID trans
 | Lifecycle and reset | §§ 4.2, 5, 7.10–7.12, 12.5–12.7 |
 | KERI slot and key state | §§ 5.2, 6.3–6.4, 7.5–7.7, 8.4, 8.7 |
 | PIN, token and user presence | §§ 5.3, 7.2, 8.1–8.2 |
-| Ticket, roles and attestation | §§ 7.4, 8.3, 9.2–9.5, 12.8, Appendix B |
+| Ticket, roles and attestation | §§ 7.4, 8.3, 9.1–9.4, 12.8, Appendix B |
 | Recovery and integration | §§ 7.8, 12.2–12.4 |
-| WebAuthn route | §§ 7.14, 9.2, 12.9 |
+| WebAuthn route | §§ 7.14, 9.1, 12.9 |
 | Status codes | § 10 |
 | Transport | § 11 (11.1 message encoding, 11.2 CTAPHID, 11.3 NFC) |
 | Group, delegation and IPEX boundaries | §§ 5.2, 8.4.2, 8.5, 12.3 |
