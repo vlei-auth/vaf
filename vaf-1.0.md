@@ -9,7 +9,7 @@
 **Editors:**
   * Fan Dang (ACentauri Technology Limited)
 
-**Companion protocol:** [VCAP 1.0 — vLEI Key Authenticator Protocol](https://vlei-auth.github.io/vcap/)
+**Companion protocol:** [VCAP 1.0 — vLEI Client to Authenticator Protocol](https://vlei-auth.github.io/vcap/)
 
 ## Abstract
 
@@ -164,7 +164,7 @@ The role public keys, role identifiers and capability masks MUST be bound by a `
 
 ### 5.3 Ticket semantics
 
-In VCAP 1.0, a Ticket is an enterprise role-key signature, under domain tag `VHKP-SIGN\0`, over:
+In VCAP 1.0, a Ticket is an enterprise role-key signature, under domain tag `VCAP-SIGN\0`, over:
 
 ```text
 [version, kind, signerKeyRef, signCounter,
@@ -371,7 +371,7 @@ Changes to VAF identity/security semantics, VCAP command bytes and CTAPHID trans
 - [CESR] ToIP CESR working specification — <https://github.com/trustoverip/kswg-cesr-specification>
 - [ACDC] ToIP ACDC working specification — <https://github.com/trustoverip/kswg-acdc-specification>
 - [vLEI-EGF] GLEIF vLEI Ecosystem Governance Framework — <https://www.gleif.org/en/organizational-identity/become-a-vlei-issuer-qvi/vlei-ecosystem-governance-framework>
-- [VCAP] [VCAP 1.0](https://vlei-auth.github.io/vcap/) — published from the review draft *vLEI Key Authenticator Protocol 1.0*.
+- [VCAP] [VCAP 1.0](https://vlei-auth.github.io/vcap/) — published from the review draft *vLEI Client to Authenticator Protocol 1.0*.
 - [RFC8032] Edwards-Curve Digital Signature Algorithm (EdDSA) — <https://www.rfc-editor.org/rfc/rfc8032>
 - [CTAP] FIDO Alliance, *Client to Authenticator Protocol v2.3* — <https://fidoalliance.org/specs/fido-v2.3-ps-20260226/fido-client-to-authenticator-protocol-v2.3-ps-20260226.html>
 - [WEBAUTHN] W3C, *Web Authentication: An API for accessing Public Key Credentials, Level 3* — <https://www.w3.org/TR/webauthn-3/>
