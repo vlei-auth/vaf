@@ -18,7 +18,7 @@ This specification defines an interoperable hardware-backed authenticator model 
 
 ## Status of this document
 
-This is an unpublished **Editor's Draft** for public review. It describes a concrete initial security architecture and lists open requirements in Section 13. Independent security review, interoperability testing, governance review and standardization are pending; the MUST and SHALL requirements below are proposed conformance requirements for that review.
+This is an unpublished **Editor's Draft** for public review. It describes a concrete initial security architecture. Independent security review, interoperability testing, governance review and standardization are pending; the MUST and SHALL requirements below are proposed conformance requirements for that review. Copyright, license and intellectual-property terms, and the change-control process, are defined before publication as a stable standard.
 
 ## 1. Introduction
 
@@ -33,6 +33,8 @@ A conforming deployment SHOULD keep the following responsibilities separate: the
 VAF specifies (a) roles and architectural boundaries; (b) authenticator-level identity and signing properties; (c) device state and evidence semantics; (d) enterprise policy binding; (e) platform, issuer and verifier responsibilities; (f) security and privacy guarantees and their limits; and (g) conformance requirements.
 
 VCAP specifies command values, parameters, error semantics, framing and transport bindings. KERI event serialization, CESR encoding, ACDC schemas, IPEX messages, witness infrastructure and OIDC session tokens are governed by their respective specifications.
+
+VAF 1.0 does not cover: group (multi-signature) AIDs; delegated inception and rotation (`dip`, `drt`); rotation of CLIENT AIDs; continuation of an AID on another authenticator (Section 6.5); KERI versions and serializations other than KERI 1.0 JSON with the syntax of VCAP §8.4.3; selective or pseudonymous state proofs; and recovery of operations that span several non-KEL messages, such as IPEX grant and admit. Section 11.3 lists candidate extension profiles for some of these.
 
 ### 1.3 Conformance terminology
 
@@ -99,10 +101,12 @@ VCAP 1.0 defines exactly four slots (`0..3`), each with owner `CLIENT=1` or `WOR
 
 | Owner | Purpose | Allowed operation kinds |
 | --- | --- | --- |
-| `CLIENT` | Client AID controlling a KERIA agent | `ICP`, `IXN`, `AGENT` |
+| `CLIENT` | Client AID that controls the employee's KERI agent | `ICP`, `IXN`, `AGENT` |
 | `WORK` | Work AID used for vLEI credentials and exchanges | `ICP`, `IXN`, `ROT`, `EXN`, `RPY` |
 
-Each slot holds one single-key, non-delegated KERI AID whose keys are all generated inside the authenticator. The initial profile advertises exactly the operations in the table above. Group (multi-signature) AIDs, delegated inception and rotation, and CLIENT rotation are candidate extensions (Sections 11.3 and 13).
+Each slot holds one single-key, non-delegated KERI AID whose keys are all generated inside the authenticator. The initial profile advertises exactly the operations in the table above. Group (multi-signature) AIDs, delegated inception and rotation, and CLIENT rotation are outside VAF 1.0 (Section 1.2).
+
+The agent that a CLIENT AID controls is identified by an agent profile. VAF 1.0 places no requirement on the agent implementation; VCAP-EI 1.0 defines the KERIA agent profile, under which the enterprise creates a KERIA agent from the CLIENT inception and the platform reaches it through AGENT sessions.
 
 ### 3.3 Key ownership and commitments
 
@@ -204,7 +208,7 @@ When a response to `Sign`, `UploadEnd`, `CreateIdentity` or `PrepareRotation` is
 
 ### 6.3 Non-KEL recovery
 
-Every signature, including `EXN`, `RPY` and `AGENT`, advances the slot's signature counter, so a `StateProof` shows whether a Ticket was used. The authenticator keeps the most recent signature of each slot; while no later signature has been made, a lost non-KEL response is retrieved with `Recover`. Older non-KEL signatures come only from the platform Outbox and the enterprise archive. IPEX-level operation recovery (stable operation identifiers and deduplication across several messages) remains an open item (Section 13).
+Every signature, including `EXN`, `RPY` and `AGENT`, advances the slot's signature counter, so a `StateProof` shows whether a Ticket was used. The authenticator keeps the most recent signature of each slot; while no later signature has been made, a lost non-KEL response is retrieved with `Recover`. Older non-KEL signatures come only from the platform Outbox and the enterprise archive. Recovery of operations that span several messages is outside VAF 1.0 (Section 1.2).
 
 ### 6.4 KERI network acceptance
 
@@ -275,13 +279,17 @@ The initial profile keeps private keys inside the authenticator interface. Each 
 
 On a displayless authenticator the user's touch confirms presence, and review of the message content takes place off-device. Enterprise approval of message content is therefore a critical control. An attacker who controls the platform and a Ticket-issuer role key, and persuades a legitimate user to touch, can obtain well-formed signatures on unintended content. Authenticator product documentation MUST state that a touch establishes user presence and that content review takes place off-device.
 
+`CreateIdentity` requires a PIN token but no Ticket. A platform that holds the PIN can therefore occupy UNUSED slots until the next Reset; such a slot cannot sign without a Ticket. The Enterprise Service detects unexpected slots from `StateProof` (VCAP §13.2).
+
 ### 9.3 Privacy of device and slots
 
-Each `StateProof` contains a persistent device identifier, reset epoch, configuration digest and the state of **all four slots**, which allows correlation across services. Results on the WebAuthn route are also signed with the attestation key, and are returned only to RP IDs listed in `TrustConfig`. Platforms and enterprises MUST limit disclosure of `StateProof`, retain it only as long as necessary, and share slot inventories only with the enrolling enterprise. Selective or pseudonymous state proofs are an open item (Section 13).
+Each `StateProof` contains a persistent device identifier, reset epoch, configuration digest and the state of **all four slots**, which allows correlation across services. Results on the WebAuthn route are also signed with the attestation key, and are returned only to RP IDs listed in `TrustConfig`. Platforms and enterprises MUST limit disclosure of `StateProof`, retain it only as long as necessary, and share slot inventories only with the enrolling enterprise. VAF 1.0 defines no selective or pseudonymous state proofs.
 
 ### 9.4 Reset, retirement and revocation
 
 Device reset, loss of PIN access, KERI identity retirement, vLEI credential revocation and enterprise session revocation are distinct events. The Enterprise Service MUST coordinate them per Section 6.5; off-device revocation is performed by the enterprise and credential issuers. Pre-rotation private keys remain in raw storage until Reset, and operators MUST evaluate that residual risk.
+
+The enterprise root key is fixed on a device by `BindEnterprise` and the role keys by `Personalize`; within a reset epoch they change only through Reset or device replacement. Compromise of the enterprise root key, or of a role key that cannot be withdrawn otherwise, therefore requires Reset or replacement of every affected device. The Enterprise Service MUST protect these keys accordingly and MUST stop issuing Tickets under a compromised key.
 
 ### 9.5 Attestation trust
 
@@ -372,22 +380,9 @@ The public test suite defines machine-readable positive and negative tests. Byte
 
 Transport tests additionally cover, for each declared transport, CTAPHID channel allocation, CCID card-session handling, multi-frame packet reconstruction, busy-state isolation between held and non-held contexts, keepalive and cancel semantics, NFC command chaining, negative framing tests and cross-transport transaction-recovery tests.
 
-## 13. Open issues and versioning
+## 13. Versioning
 
-1. **CLIENT AID rotation:** Should CLIENT keys support rotation while remaining compatible with agent creation in KERIA? VCAP 1.0 allows rotation for WORK slots only.
-2. **Identity continuity across devices:** Section 6.5 specifies the obligations after device loss or Reset. A design that lets an identity continue on another device (for example group or delegated AIDs) remains open.
-3. **Group and delegation:** Slots have a single key and threshold `1`, and reject `dip`/`drt`. Group AIDs and delegated events need an extension and test suite.
-4. **Signed operation recovery:** The authenticator returns only the most recent non-KEL signature of each slot; IPEX Grant/Admit recovery needs stable operation identifiers and replay/commit evidence.
-5. **Attestation privacy:** Every `StateProof` carries all slots and a permanent device identifier. Define minimal proofs and queries in a future version.
-6. **Root and roles:** Enterprise root and role keys change only through device replacement or Reset; specify revocation and break-glass procedures.
-7. **Signature method:** VCAP 1.0 requires Ed25519 signatures verifiable under RFC 8032 and leaves their computation, including nonce generation, to the implementation. A cryptographic review of each implementation should cover nonce generation, side channels and fault resistance, with test vectors.
-8. **KERI versions:** VCAP 1.0 signs KERI 1.0 JSON events with the syntax of VCAP §8.4.3. Support for later KERI versions needs a version-negotiation or compatibility-profile registry.
-9. **Browser compatibility:** The WebAuthn route (VCAP §7.14) is optional for authenticators. It depends on browsers and platform FIDO APIs (Chrome, Edge, Safari and Firefox on Windows, macOS, Android and iOS) forwarding unchanged: the private algorithm identifier, credential IDs of up to 1023 bytes, an `OKP` credential public key with a private label, and an opaque `signature`; and on how each handles silent `up=false` preflight requests. Each needs prototype validation. If platforms filter unknown algorithm identifiers, the fallback marks VCAP requests by the `"VC1"`/`"VQ1"` payload prefixes alone and uses EdDSA (-8) as the algorithm. The value -65700 is provisional.
-10. **Formal governance:** Define copyright, license and IPR terms and the change-control process before publication as a stable standard.
-11. **Slot allocation:** `CreateIdentity` needs a PIN token but no Ticket, so a compromised platform can take UNUSED slots until the next Reset (VCAP §13.2 item 5). Whether slot allocation requires enterprise authorization is open.
-12. **Manufacturer trust anchors:** Enterprises obtain manufacturer root certificates through a trusted channel (VCAP Appendix D.2). Who qualifies manufacturers and how their roots are published is open.
-
-Changes to VAF identity and security semantics, VCAP command bytes and transport framing are tracked separately. Domain separators and codepoints change only through a versioned migration.
+Changes to VAF identity and security semantics, VCAP command bytes or transport framing require a new version of the affected document. Domain separators and codepoints change only through a versioned migration.
 
 ## A. Traceability to VCAP 1.0 (informative)
 
