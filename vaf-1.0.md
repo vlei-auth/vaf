@@ -285,6 +285,8 @@ On a displayless authenticator the user's touch confirms presence, and review of
 
 Each `StateProof` contains a persistent device identifier, reset epoch, configuration digest and the state of **all four slots**, which allows correlation across services. Results on the WebAuthn route are also signed with the attestation key, and are returned only to RP IDs listed in `TrustConfig`. Platforms and enterprises MUST limit disclosure of `StateProof`, retain it only as long as necessary, and share slot inventories only with the enrolling enterprise. VAF 1.0 defines no selective or pseudonymous state proofs.
 
+Before a PIN is set, the device also answers an unauthenticated request with a signed `BindingProof` (VCAP §7.4.3) carrying its device identifier, tenant and reset epoch. This lets the enterprise learn the actual reset epoch without guessing, including after a Reset it did not order. The same proof identifies the device and its enterprise to any host it is connected to while it is not in PIN_READY; the same disclosure limits apply.
+
 ### 9.4 Reset, retirement and revocation
 
 Device reset, loss of PIN access, KERI identity retirement, vLEI credential revocation and enterprise session revocation are distinct events. The Enterprise Service MUST coordinate them per Section 6.5; off-device revocation is performed by the enterprise and credential issuers. Pre-rotation private keys remain in raw storage until Reset, and operators MUST evaluate that residual risk.
