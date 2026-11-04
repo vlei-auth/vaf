@@ -1,6 +1,6 @@
 # vLEI Authenticator Framework (VAF) — Version 1.0
 
-*Editor's Draft — 2 November 2026*
+*Editor's Draft — 4 November 2026*
 
 **Specification identifier:** VAF-1.0  
 **Editor's Draft URL:** https://vlei-auth.github.io/vaf/  
@@ -260,6 +260,8 @@ Platforms MUST submit a `StateProof` with the Ticket request whenever their know
 ### 8.2 Ticket issuer
 
 A Ticket issuer MUST verify enrollment, attestation public key, tenant, reset epoch, authoritative current state, role authorization, request content, message format and risk before signing a Ticket. Its state evidence is either a `StateProof` answering a single-use challenge it generated, or its archived head and signature counter (an archived original signature, or network-accepted head progression). It MUST persist an audit record and the original message before signing. Ticket issuance follows the enterprise's current permission state: after a permission is revoked, the issuer denies further Tickets for it, regardless of the role keys still installed on the authenticator.
+
+Before issuing a Ticket for an IPEX admit of a credential that the enterprise will treat as a vLEI credential, the Ticket issuer MUST verify, as the verifier of Section 8.3, that: the credential's issuer chain ends at the GLEIF Root of Trust whose AID the enterprise has configured out of band; each credential in the chain has the schema and the edges that the vLEI EGF requires for its type (QVI, legal entity, OOR authorization, OOR, ECR authorization, ECR); the issuee is the slot's AID; and no credential in the chain is revoked, according to status read from its registry for this decision rather than from a cache. A credential that fails these checks MAY be admitted under an explicit enterprise policy, but MUST NOT then be treated or displayed as a vLEI credential.
 
 ### 8.3 Verifier
 
