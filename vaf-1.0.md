@@ -101,12 +101,12 @@ VCAP 1.0 defines exactly four slots (`0..3`), each with owner `CLIENT=1` or `WOR
 
 | Owner | Purpose | Allowed operation kinds |
 | --- | --- | --- |
-| `CLIENT` | Client AID that controls the employee's KERI agent | `ICP`, `IXN`, `AGENT` |
+| `CLIENT` | Client AID that controls the employee's KERI agent | `ICP`, `IXN` |
 | `WORK` | Work AID used for vLEI credentials and exchanges | `ICP`, `IXN`, `ROT`, `EXN`, `RPY` |
 
 Each slot holds one single-key, non-delegated KERI AID whose keys are all generated inside the authenticator. The initial profile advertises exactly the operations in the table above. Group (multi-signature) AIDs, delegated inception and rotation, and CLIENT rotation are outside VAF 1.0 (Section 1.2).
 
-The agent that a CLIENT AID controls is identified by an agent profile. VAF 1.0 places no requirement on the agent implementation; VCAP-EI 1.0 defines the KERIA agent profile, under which the enterprise creates a KERIA agent from the CLIENT inception and the platform reaches it through AGENT sessions.
+The agent that a CLIENT AID controls is identified by an agent profile. VAF 1.0 places no requirement on the agent implementation; VCAP-EI 1.0 defines the KERIA agent profile, under which the enterprise creates a KERIA agent from the CLIENT inception and relays the platform's Agent requests under the employee's enterprise bearer token. Reading from or updating the Agent does not use the authenticator; only signatures by slot keys do.
 
 ### 3.3 Key ownership and commitments
 
@@ -147,7 +147,7 @@ The authenticator MUST treat missing or corrupted data in previously initialized
 
 ### 4.2 Personalization and enterprise governance
 
-The authenticator MUST verify `TrustConfig` against the bound enterprise root, the device identifier, tenant and current reset epoch. `TrustConfig` contains an owner mask, a minimum PIN length, 1–8 role public keys with their capability masks, and the SHA-256 digests of the enterprise RP IDs allowed to use the WebAuthn route (VCAP §7.14). An enterprise that uses only WORK identities sets an owner mask without CLIENT. Personalization happens once per reset epoch; changing role keys or enterprise policy requires a Reset followed by a new Personalize. An Enterprise Service MUST document the resulting emergency-revocation and service-availability procedures.
+The authenticator MUST verify `TrustConfig` against the bound enterprise root, the device identifier, tenant and current reset epoch. `TrustConfig` contains an owner mask, a minimum PIN length, 1–8 role public keys with their capability masks, and the SHA-256 digests of the enterprise RP IDs allowed to use the WebAuthn route (VCAP §7.14). An enterprise that uses only WORK identities sets an owner mask without CLIENT. Personalization happens once per reset epoch and is performed by the enterprise with the device under its control. The PIN SHOULD be set by the employee on their own platform, so the enterprise hands the device over in `PERSONALIZED_NO_PIN` and never learns the PIN (VCAP §12.5). After a Reset, personalization for the new epoch is again performed by the enterprise. changing role keys or enterprise policy requires a Reset followed by a new Personalize. An Enterprise Service MUST document the resulting emergency-revocation and service-availability procedures.
 
 ### 4.3 PIN and UP
 
@@ -182,11 +182,11 @@ The authenticator derives `KeyRef` from its own verified slot state: device iden
 
 The Ticket issuer MUST base each Ticket on reliable state evidence: a fresh `StateProof` bound to its own single-use challenge, or an archived original signature together with network-accepted head progression. It MUST persist the requested message before signing the Ticket, and check its semantics and risk. When it issues a replacement Ticket for a counter value whose earlier Ticket went unused, it treats the earlier Ticket as still usable until the counter advances. The issuer learns the counter from archived signatures, a `StateProof`, or the `signCount` of a WebAuthn response.
 
-**Replay and time boundary:** every Ticket becomes unusable once any signature on its slot commits. A Ticket carries no time limit: an unused Ticket stays valid until the next signature on the slot, and the enterprise revokes it by having another signature made or by Reset. Timeliness comes from issuance-time checks and from the messages themselves (the KEL head binding, `dt` in `exn`/`rpy`, `expires` in `AGENT`). Recipients SHOULD still enforce request-level anti-replay as defense in depth.
+**Replay and time boundary:** every Ticket becomes unusable once any signature on its slot commits. A Ticket carries no time limit: an unused Ticket stays valid until the next signature on the slot, and the enterprise revokes it by having another signature made or by Reset. Timeliness comes from issuance-time checks and from the messages themselves (the KEL head binding and `dt` in `exn`/`rpy`). Recipients SHOULD still enforce request-level anti-replay as defense in depth.
 
 ### 5.4 Operation categories
 
-The baseline capability registry consists of the six VCAP signing kinds (`ICP`, `IXN`, `ROT`, `EXN`, `RPY`, `AGENT`) combined with the owners listed in Section 3.2 (eight valid combinations, VCAP Appendix B). VAF defines their authorization purpose; VCAP defines the numeric values and exact validation algorithm. The `AGENT` kind signs a short-lived, domain-separated session message whose claims name a wallet operation profile (VCAP §8.5.3, VCAP-EI Appendix C); the session permits exactly the Agent requests of that profile.
+The baseline capability registry consists of the five VCAP signing kinds (`ICP`, `IXN`, `ROT`, `EXN`, `RPY`) combined with the owners listed in Section 3.2 (seven valid combinations, VCAP Appendix B). VAF defines their authorization purpose; VCAP defines the numeric values and exact validation algorithm. Agent requests that produce no slot signature (reads, contact and notification metadata) are authorized by the enterprise PDP from the employee's bearer token and are not Ticket operations (VCAP-EI §7.11, Appendix C).
 
 ### 5.5 Candidate enterprise risk profile (informative)
 
@@ -208,7 +208,7 @@ When a response to `Sign`, `UploadEnd`, `CreateIdentity` or `PrepareRotation` is
 
 ### 6.3 Non-KEL recovery
 
-Every signature, including `EXN`, `RPY` and `AGENT`, advances the slot's signature counter, so a `StateProof` shows whether a Ticket was used. The authenticator keeps the most recent signature of each slot; while no later signature has been made, a lost non-KEL response is retrieved with `Recover`. Older non-KEL signatures come only from the platform Outbox and the enterprise archive. Recovery of operations that span several messages is outside VAF 1.0 (Section 1.2).
+Every signature, including `EXN` and `RPY`, advances the slot's signature counter, so a `StateProof` shows whether a Ticket was used. The authenticator keeps the most recent signature of each slot; while no later signature has been made, a lost non-KEL response is retrieved with `Recover`. Older non-KEL signatures come only from the platform Outbox and the enterprise archive. Recovery of operations that span several messages is outside VAF 1.0 (Section 1.2).
 
 ### 6.4 KERI network acceptance
 
@@ -221,7 +221,7 @@ Every identity-control key of a slot exists only inside one authenticator, and a
 The Enterprise Service:
 
 1. MUST mark the device, or the affected reset epoch, as retired in its enrollment record without undue delay, and from then on MUST refuse Tickets for every slot it covers and MUST NOT deliver Tickets already issued for them.
-2. MUST revoke the sessions and AGENT grants derived from the affected AIDs, and deactivate the agents controlled by the affected CLIENT AIDs.
+2. MUST revoke the sessions derived from the affected AIDs, and deactivate the agents controlled by the affected CLIENT AIDs.
 3. MUST record each affected AID as retired and report it as inactive through VCAP-EI `aid-status`.
 4. MUST request the issuers of vLEI credentials whose issuee is an affected WORK AID to revoke those credentials, following the vLEI EGF, and MUST record the request.
 5. MUST reuse a recovered device only after a Reset and a new Personalize.
@@ -269,7 +269,7 @@ The verifier MUST validate signature evidence, expected KERI key state, the cred
 
 ### 8.4 Enterprise PDP and sessions
 
-The PDP decides effective business permission for each resource. Session issuance and revocation MUST follow authoritative business state; access derived from an AID, ECR/OOR credential or Ticket lasts only as long as the PDP's current decision. Session caching and failure-mode leases belong to an application-layer policy profile such as `VAF-POLICY-1`.
+The PDP decides effective business permission for each resource. Signing and reading have separate requirements: a slot signature needs the authenticator, a Ticket and a fresh UP, while reading needs only an authenticated employee session that the PDP currently allows; a platform MUST NOT require the authenticator for read-only access. Session issuance and revocation MUST follow authoritative business state; access derived from an AID, ECR/OOR credential or Ticket lasts only as long as the PDP's current decision. Session caching and failure-mode leases belong to an application-layer policy profile such as `VAF-POLICY-1`.
 
 ## 9. Security and privacy considerations
 
