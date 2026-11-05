@@ -18,7 +18,7 @@ This specification defines an interoperable hardware-backed authenticator model 
 
 ## Status of this document
 
-This is an unpublished **Editor's Draft** for public review. It describes a concrete initial security architecture. Independent security review, interoperability testing, governance review and standardization are pending; the MUST and SHALL requirements below are proposed conformance requirements for that review. Copyright, license and intellectual-property terms, and the change-control process, are defined before publication as a stable standard.
+This is an unpublished **Editor's Draft** for public review. It describes a concrete initial security architecture. Independent security review, interoperability testing, governance review and standardization are pending; the requirements below, stated with the keywords of Section 1.3, are proposed conformance requirements for that review. Copyright, license and intellectual-property terms, and the change-control process, are defined before publication as a stable standard.
 
 ## 1. Introduction
 
@@ -46,9 +46,9 @@ VAF builds on the following external systems and uses their definitions as publi
 
 | System | Authority | VAF integration boundary |
 | --- | --- | --- |
-| **KERI** | KERI specification and compatible implementation profile | AIDs, key events, current/next keys, commitments, sequence numbers, prior event links |
-| **CESR / SAID** | Relevant KERI-family specifications | External signature attachments and content-addressed identifiers |
-| **ACDC / IPEX** | Relevant ACDC and IPEX specifications | Credentials, disclosure and exchange handled by wallet/agent/verifier |
+| **KERI** | [KERI], restricted to the event syntax of VCAP §8.4.3 | AIDs, key events, current/next keys, commitments, sequence numbers, prior event links |
+| **CESR / SAID** | [CESR] | External signature attachments and content-addressed identifiers |
+| **ACDC / IPEX** | [ACDC] | Credentials, disclosure and exchange handled by wallet/agent/verifier |
 | **vLEI** | GLEIF vLEI Ecosystem Governance Framework (EGF) | Credential types, issuance, revocation, legal/role trust chain |
 | **VCAP** | Companion device protocol | Exact command values, wire structures, transport, PIN and state encodings |
 | **VCAP-EI** | Companion enterprise interface | Ticket requests, archiving, recovery, message submission and Agent relay between platform and enterprise service |
@@ -61,13 +61,15 @@ VAF conformance is a claim about this specification only. GLEIF qualification an
 ### 2.1 Actors
 
 - **Authenticator:** an external hardware unit holding its attestation identity and exactly four independently stateful key slots in the initial profile.
-- **Platform / wallet:** an untrusted client of the authenticator, responsible for preparing the actual message, maintaining an Outbox and contacting external services.
+- **Platform:** an untrusted client of the authenticator, responsible for preparing the actual message, maintaining an Outbox and contacting external services.
 - **Manufacturer:** generates the device attestation identity and issues its manufacturer certificate chain.
 - **Enterprise administrator:** verifies manufactured device identity, binds the tenant and enterprise root, and provisions the enterprise-signed `TrustConfig`.
 - **Ticket issuer:** validates device state and the requested action, persists the message, and signs a single-use Ticket that authorizes one digest-bound cryptographic operation.
 - **KERI agent / infrastructure:** validates and publishes key events, collects witness receipts and tracks network state; may provide Signify/KERIA-compatible application functionality.
 - **Credential verifier:** validates the ACDC/vLEI issuance chain, holder proof, disclosure, status and required anchoring.
 - **Relying party / PDP:** applies current business roles, resource policy, revocation, session state and risk constraints.
+
+In this document, **Enterprise Service** denotes the enterprise administrator, Ticket issuer, archive and the KERI services the enterprise operates, taken together, as in the conformance class of Section 11.1; a requirement on the Ticket issuer applies to the Enterprise Service that operates it. **Platform** includes wallets and enterprise web pages (VCAP §3.1).
 
 ### 2.2 Trust assumptions
 
@@ -91,7 +93,7 @@ Status reporting MUST distinguish the stages **device signed**, **enterprise arc
 
 ### 3.1 Device binding
 
-Each authenticator MUST have a protected device attestation identity. The initial profile provisions an Ed25519 attestation key pair and a manufacturer certificate chain; the chain is delivered at enrollment, outside the runtime `GetState` response. The enterprise MUST verify the chain and bind the attestation public key to its enrollment record before accepting state evidence, and thereafter verifies each `StateProof` with that enrolled public key.
+Each authenticator MUST have a protected device attestation identity. The initial profile provisions an Ed25519 attestation key pair and a manufacturer certificate chain. The device presents the chain itself while it is not in `PIN_READY` (binding-mode `GetState`, VCAP §7.4.3), so enrollment needs only the manufacturer root as trust anchor and no per-device file from the manufacturer. The enterprise MUST verify the chain and bind the attestation public key to its enrollment record before accepting state evidence, and thereafter verifies each `StateProof` with that enrolled public key.
 
 The initial profile MUST implement a one-time enterprise binding. `BindEnterprise` fixes a `tenant` and `enterpriseRoot` for the physical device for its entire life, and a reset MUST preserve that binding. Moving a device to another enterprise requires replacing the device.
 
@@ -147,13 +149,13 @@ The authenticator MUST treat missing or corrupted data in previously initialized
 
 ### 4.2 Personalization and enterprise governance
 
-The authenticator MUST verify `TrustConfig` against the bound enterprise root, the device identifier, tenant and current reset epoch. `TrustConfig` contains an owner mask, a minimum PIN length, 1–8 role public keys with their capability masks, and the SHA-256 digests of the enterprise RP IDs allowed to use the WebAuthn route (VCAP §7.14). An enterprise that uses only WORK identities sets an owner mask without CLIENT. Personalization happens once per reset epoch and is performed by the enterprise with the device under its control. The PIN SHOULD be set by the employee on their own platform, so the enterprise hands the device over in `PERSONALIZED_NO_PIN` and never learns the PIN (VCAP §12.5). After a Reset, personalization for the new epoch is again performed by the enterprise. changing role keys or enterprise policy requires a Reset followed by a new Personalize. An Enterprise Service MUST document the resulting emergency-revocation and service-availability procedures.
+The authenticator MUST verify `TrustConfig` against the bound enterprise root, the device identifier, tenant and current reset epoch. `TrustConfig` contains an owner mask, a minimum PIN length, 1–8 role public keys with their capability masks, and the SHA-256 digests of the enterprise RP IDs allowed to use the WebAuthn route (VCAP §7.14). An enterprise that uses only WORK identities sets an owner mask without CLIENT. Personalization happens once per reset epoch and is performed by the enterprise with the device under its control. The PIN SHOULD be set by the employee on their own platform, so the enterprise hands the device over in `PERSONALIZED_NO_PIN` and never learns the PIN (VCAP §12.5). After a Reset, personalization for the new epoch is again performed by the enterprise. Changing role keys or enterprise policy requires a Reset followed by a new Personalize. An Enterprise Service MUST document the resulting emergency-revocation and service-availability procedures.
 
 ### 4.3 PIN and UP
 
 The device MUST enforce its own PIN retry limits with durable failed-attempt accounting, and MUST receive the PIN encrypted under CTAP `pinUvAuthProtocol 2` (P-256 ECDH, HKDF-SHA-256, AES-256-CBC, HMAC-SHA-256), which VCAP `ClientPIN` uses unchanged. VCAP 1.0 uses the CTAP PIN retry and power-cycle lockout rules, and adds `READ`, `SIGN` and `MANAGE` token permissions above the CTAP permission bits. PIN-derived material and tokens MUST be discarded when the context ends. Every signature by a slot key (`Sign`, `UploadEnd`, or a signature requested through WebAuthn) MUST consume its own new user action, either a sensor press or, over NFC, the tap into the reader's field (one tap per field session); over USB HID and USB CCID the action is always a sensor press. `BindEnterprise` and `Personalize` also require a touch, and `Reset` requires a 5-second hold. The authenticator MUST have a touch sensor and a presence indicator light (VCAP §8.2).
 
-Wallets present a touch as confirmation of presence. Higher assurance for message content comes from independent, trusted content confirmation outside the displayless device together with server-side approval appropriate to the transaction.
+A platform MUST present a touch to the user as confirmation of presence and MUST NOT present it as approval of message content. Assurance for message content comes from content confirmation outside the authenticator and from the Ticket issuer's approval (Section 9.2).
 
 ### 4.4 Reset and retirement
 
@@ -188,17 +190,13 @@ The Ticket issuer MUST base each Ticket on reliable state evidence: a fresh `Sta
 
 The baseline capability registry consists of the five VCAP signing kinds (`ICP`, `IXN`, `ROT`, `EXN`, `RPY`) combined with the owners listed in Section 3.2 (seven valid combinations, VCAP Appendix B). VAF defines their authorization purpose; VCAP defines the numeric values and exact validation algorithm. Agent requests that produce no slot signature (reads, contact and notification metadata) are authorized by the enterprise PDP from the employee's bearer token and are not Ticket operations (VCAP-EI §7.11, Appendix C).
 
-### 5.5 Candidate enterprise risk profile (informative)
-
-Candidate profile `VAF-POLICY-1` distinguishes LOW (short-lived read-only access), MEDIUM (ordinary signing and credential presentation) and HIGH (privileged operations or anchored presentations). A central PDP is the final authorization authority; a LOW read-only decision MAY be cached under an explicitly scoped, time-limited lease, and every HIGH operation receives a fresh online decision.
-
 ## 6. Signing and recovery
 
 ### 6.1 Signing protocol boundary
 
 The authenticator receives the complete message bytes, computes their digest itself and checks it against the Ticket's digest and length, verifies KERI field and key consistency for the operation kind, and collects a fresh UP before releasing a signature. The platform MUST independently verify the returned signature over its own saved message bytes.
 
-For KEL events, the authenticator checks the version-string size, event type, `i`, `s`, `p`, `d` format, current keys, thresholds and next-key commitment. The enterprise/KERI service MUST verify the SAID, witness receipts, delegation and network acceptance before treating the event as valid in the wider ecosystem.
+For KEL events, the authenticator checks the version-string size, event type, `i`, `s`, `p`, `d` format, current keys, thresholds and next-key commitment. The Enterprise Service MUST verify the SAID, witness receipts, delegation and network acceptance before treating the event as valid in the wider ecosystem.
 
 ### 6.2 Atomic KEL commit and response loss
 
@@ -212,7 +210,7 @@ Every signature, including `EXN` and `RPY`, advances the slot's signature counte
 
 ### 6.4 KERI network acceptance
 
-A local commit is reported as **device signed**; witness receipts, completed delegation, KEL acceptance and business settlement are reported only from their own evidence. When an authoritative party permanently rejects a committed event and operations staff approve, the enterprise marks the slot as rejected and issues no further Tickets for it in the current reset epoch; the slot's head stays as committed, and reusing the slot requires a Reset. After a temporary failure, the enterprise redelivers the original signature.
+A local commit is reported as **device signed**; witness receipts, completed delegation, KEL acceptance and business settlement are reported only from their own evidence. When an authoritative party permanently rejects a committed event and the Enterprise Service accepts that rejection, it marks the slot as rejected and issues no further Tickets for it in the current reset epoch; the slot's head stays as committed, and reusing the slot requires a Reset. After a temporary failure, the enterprise redelivers the original signature.
 
 ### 6.5 Device loss, Reset and identity continuity
 
@@ -220,18 +218,18 @@ Every identity-control key of a slot exists only inside one authenticator, and a
 
 The Enterprise Service:
 
-1. MUST mark the device, or the affected reset epoch, as retired in its enrollment record without undue delay, and from then on MUST refuse Tickets for every slot it covers and MUST NOT deliver Tickets already issued for them.
+1. MUST mark the device, or the affected reset epoch, as retired in its enrollment record before it issues any further Ticket for the device, and from then on MUST refuse Tickets for every slot it covers and MUST NOT deliver Tickets already issued for them.
 2. MUST revoke the sessions derived from the affected AIDs, and deactivate the agents controlled by the affected CLIENT AIDs.
 3. MUST record each affected AID as retired and report it as inactive through VCAP-EI `aid-status`.
 4. MUST request the issuers of vLEI credentials whose issuee is an affected WORK AID to revoke those credentials, following the vLEI EGF, and MUST record the request.
 5. MUST reuse a recovered device only after a Reset and a new Personalize.
-6. Onboards a replacement device per VCAP §12.5, which creates new AIDs. Credentials for the employee are issued anew to the new WORK AIDs; any link between old and new AIDs is established by the enterprise's records and by the newly issued credentials.
+6. MAY onboard a replacement device per VCAP §12.5, which creates new AIDs. Credentials for the employee are issued anew to the new WORK AIDs; any link between old and new AIDs is established by the enterprise's records and by the newly issued credentials.
 
 A Platform that learns that an AID is inactive MUST stop requesting Tickets and signatures for it.
 
 A Verifier MUST evaluate a presentation by an affected AID according to the current status of its credentials (Section 8.3).
 
-An unused Ticket issued before the event remains acceptable to the authenticator until the slot's next signature (Section 5.3). Step 1 keeps such Tickets from being delivered, and recipients reject messages whose own validity (`dt`, `expires`) has passed.
+An unused Ticket issued before the event remains acceptable to the authenticator until the slot's next signature (Section 5.3). Step 1 keeps such Tickets from being delivered, and recipients reject messages whose own validity (`dt`) has passed.
 
 ## 7. vLEI credential interaction and presentation
 
@@ -245,11 +243,7 @@ When ACDC/IPEX semantics allow, a presentation for a credential issued to a WORK
 
 ### 7.3 IPEX integration
 
-A WORK slot signs any `exn` message whose `i` equals the slot AID, so an off-device agent can build and exchange IPEX messages (for example `grant` and `admit`) signed by the authenticator. The enterprise validates the route, recipient and business meaning before issuing the Ticket. End-to-end IPEX conformance, replay-safe operation recovery and presentation-policy enforcement are specified by candidate profile `VAF-IPEX-1`.
-
-### 7.4 Candidate signed/anchored presentation assurance (informative)
-
-Candidate profile `VAF-PRES-1` lets ordinary operations use a signed holder proof and requires verified KERI anchoring for high-risk operations. Holder proof and anchor evidence are distinct outputs; a verifier reports `Anchored` only after verifying the anchor. Holder privacy, disclosure minimization and enterprise business authorization are specified separately.
+A WORK slot signs any `exn` message whose `i` equals the slot AID, so an off-device agent can build and exchange IPEX messages (for example `grant` and `admit`) signed by the authenticator. The enterprise validates the route, recipient and business meaning before issuing the Ticket. End-to-end IPEX conformance, replay-safe operation recovery and presentation-policy enforcement are outside VAF 1.0 (Section 11.3).
 
 ## 8. Platform, verifier and PDP obligations
 
@@ -287,7 +281,7 @@ On a displayless authenticator the user's touch confirms presence, and review of
 
 Each `StateProof` contains a persistent device identifier, reset epoch, configuration digest and the state of **all four slots**, which allows correlation across services. Results on the WebAuthn route are also signed with the attestation key, and are returned only to RP IDs listed in `TrustConfig`. Platforms and enterprises MUST limit disclosure of `StateProof`, retain it only as long as necessary, and share slot inventories only with the enrolling enterprise. VAF 1.0 defines no selective or pseudonymous state proofs.
 
-Before a PIN is set, the device also answers an unauthenticated request with a signed `BindingProof` (VCAP §7.4.3) carrying its device identifier, tenant and reset epoch. This lets the enterprise learn the actual reset epoch without guessing, including after a Reset it did not order. The same proof identifies the device and its enterprise to any host it is connected to while it is not in PIN_READY; the same disclosure limits apply.
+Before a PIN is set, the device also answers an unauthenticated request with a signed `BindingProof` (VCAP §7.4.3) carrying its device identifier, tenant and reset epoch, and on request its attestation certificate chain. This lets the enterprise learn the actual reset epoch without guessing, including after a Reset it did not order. The same proof identifies the device and its enterprise to any host it is connected to while it is not in PIN_READY; the same disclosure limits apply.
 
 ### 9.4 Reset, retirement and revocation
 
@@ -297,7 +291,7 @@ The enterprise root key is fixed on a device by `BindEnterprise` and the role ke
 
 ### 9.5 Attestation trust
 
-Enterprise enrollment MUST authenticate the manufacturer attestation chain out of band, since the runtime `StateProof` carries only the signature. Verifiers MUST use the enrolled attestation public key and a fresh challenge. State attestation is established only by a verified `StateProof` signature.
+Enterprise enrollment MUST verify the attestation chain against a manufacturer root obtained out of band; the chain itself MAY come from the device (VCAP §7.4.3), since it is authenticated by that root. The runtime `StateProof` carries only the signature. Verifiers MUST use the enrolled attestation public key and a fresh challenge. State attestation is established only by a verified `StateProof` signature.
 
 ## 10. VCAP integration and transport independence
 
@@ -307,7 +301,7 @@ VAF relies on these VCAP commands: `GetInfo`, `ClientPIN`, `Cancel`, `GetState`,
 
 ### 10.2 Transport bindings
 
-A conforming VAF authenticator MUST implement at least one VCAP transport: CTAPHID over USB HID, the CTAP NFC binding, or USB CCID, which carries the APDUs of the CTAP NFC binding over a contact smart-card interface reachable through the operating system's smart-card service (VCAP §11.4). The authenticator presents itself to the platform as a FIDO device and lists its transports and `"VCAP_1_0"` in GetInfo. Wallets use the VCAP commands over these transports.
+A conforming VAF authenticator MUST implement at least one VCAP transport: CTAPHID over USB HID, the CTAP NFC binding, or USB CCID, which carries the APDUs of the CTAP NFC binding over a contact smart-card interface reachable through the operating system's smart-card service (VCAP §11.4). The authenticator presents itself to the platform as a FIDO device and lists its transports and `"VCAP_1_0"` in GetInfo.
 
 An authenticator MAY in addition implement the WebAuthn route (VCAP §7.14), through which web pages use the standard WebAuthn API: `navigator.credentials.create()` carries `CreateIdentity`, and `navigator.credentials.get()` carries `Sign`, `GetState`, `PrepareRotation` and `Recover`, marked by a private COSE algorithm identifier and payloads that browsers forward unchanged. Only RP IDs listed in the enterprise-signed `TrustConfig` reach this route; to other sites the authenticator is an ordinary security key. A request on this route is limited to 1023 bytes including the Ticket, so larger messages use the native route. Browsers do not keep the PIN token between calls, so each call takes one PIN entry and one user action; the enterprise therefore issues Tickets from its archived state, so a signature takes one call, and resolves an unknown outcome with one read-only call (VCAP §12.9). The authenticator also implements the standard CTAP operations and serves as a FIDO2 security key for WebAuthn sign-in; those FIDO credentials are separate from the KERI slots and are not attested with the VCAP attestation key (VCAP §7.13).
 
@@ -321,15 +315,15 @@ Browsers and operating systems may send `GetInfo`, `ClientPIN` and `Reset` to th
 
 | Class | Who | Requirements |
 | --- | --- | --- |
-| **Authenticator** | Producer of the vLEI Key hardware and firmware | Sections 3, 4, 6.1–6.2, 9.1, 10; VCAP class Authenticator (VCAP §2.1) |
-| **Manufacturer** | Party that generates the attestation identity and delivers enrollment packages | Section 3.1; VCAP Appendix D.1, D.3 |
-| **Platform** | Wallet or enterprise web page that uses the authenticator | Sections 6.2–6.5, 8.1; VCAP classes Platform and Web platform; VCAP-EI class Platform |
+| **Authenticator** | Producer of authenticator hardware and firmware | Sections 3, 4, 6.1–6.2, 9.1, 10; VCAP class Authenticator (VCAP §2.1) |
+| **Manufacturer** | Party that generates the attestation identity and issues its certificate chain | Section 3.1; VCAP Appendix D.1, D.5 |
+| **Platform** | Wallet or enterprise web page that uses the authenticator | Sections 6.2–6.5, 8.1, 8.4; VCAP classes Platform and Web platform; VCAP-EI class Platform |
 | **Enterprise Service** | Ticket issuer, archive and enrollment service of the enterprise | Sections 4.2, 5, 6.2–6.5, 8.2, 8.4, 9; VCAP class Enterprise service; VCAP-EI class Enterprise Service |
 | **Verifier** | Credential verifier and relying party | Sections 7, 8.3, 8.4 |
 
 A product claims conformance for each class it implements. The optional authenticator features of VCAP §2.1 (USB HID, NFC and USB CCID transports, WebAuthn route) are declared with the claim.
 
-### 11.2 VAF-BASE-1 (proposed baseline)
+### 11.2 VAF-BASE-1
 
 An implementation claiming `VAF-BASE-1` MUST satisfy the following requirements for its class:
 
@@ -356,14 +350,14 @@ An implementation claiming `VAF-BASE-1` MUST satisfy the following requirements 
 
 - **VAF-IPEX-1** — complete hardware-assisted IPEX Grant/Admit signing and operation-recovery semantics.
 - **VAF-GROUP-1** — participating-member keys, threshold/multisig workflow, group AID state and group-specific recovery.
-- **VAF-PRES-1** — signed/anchored presentation assurance and privacy-related disclosure requirements.
-- **VAF-POLICY-1** — online central PDP decisions and narrowly bounded low-risk cache/failure leases.
+- **VAF-PRES-1** — signed/anchored presentation assurance: ordinary operations use a signed holder proof, high-risk operations require verified KERI anchoring, and a verifier reports `Anchored` only after verifying the anchor; with privacy-related disclosure requirements.
+- **VAF-POLICY-1** — enterprise risk classes LOW (short-lived read-only access), MEDIUM (ordinary signing and credential presentation) and HIGH (privileged operations or anchored presentations); a central PDP decides, a LOW read-only decision may be cached under a scoped, time-limited lease, and every HIGH operation receives a fresh online decision.
 
-A product claims a candidate profile once that profile is specified and the product passes its tests.
+These profiles are not specified by VAF 1.0; a product can claim one only after it is specified.
 
-## 12. Conformance test intentions
+## 12. Conformance tests
 
-The public test suite defines machine-readable positive and negative tests. Byte-exact test vectors for the derivations and structures of VCAP Sections 6, 8 and 9 and for the event syntax of VCAP §8.4.3 are given in VCAP Appendix E. A product claims `VAF-BASE-1` once it passes that suite. The suite covers at least the following cases:
+Byte-exact test vectors for the derivations and structures of VCAP Sections 6, 8 and 9 and for the event syntax of VCAP §8.4.3 are given in VCAP Appendix E. A test suite for `VAF-BASE-1` MUST include at least the following cases, each with positive and negative tests, and an implementation claiming `VAF-BASE-1` MUST pass them for its class:
 
 | Case | Expected outcome |
 | --- | --- |
@@ -407,14 +401,16 @@ Changes to VAF identity and security semantics, VCAP command bytes or transport 
 
 ## B. References
 
-### B.1 Normative references (subject to profile pinning)
+### B.1 Normative references
+
+[KERI], [CESR] and [ACDC] are working specifications without a stable version. VAF depends on them only for the event syntax and encodings fixed by VCAP §6.2–§6.4 and §8.4.3, which VCAP Appendix E pins byte for byte; a conformance claim states the versions it was tested against.
 
 - [BCP14] RFC 2119 and RFC 8174 — <https://www.rfc-editor.org/info/bcp14/>
 - [KERI] ToIP KERI working specification — <https://github.com/trustoverip/kswg-keri-specification>
 - [CESR] ToIP CESR working specification — <https://github.com/trustoverip/kswg-cesr-specification>
 - [ACDC] ToIP ACDC working specification — <https://github.com/trustoverip/kswg-acdc-specification>
 - [vLEI-EGF] GLEIF vLEI Ecosystem Governance Framework — <https://www.gleif.org/en/organizational-identity/become-a-vlei-issuer-qvi/vlei-ecosystem-governance-framework>
-- [VCAP] [VCAP 1.0](https://vlei-auth.github.io/vcap/) — published from the review draft *vLEI Client to Authenticator Protocol 1.0*.
+- [VCAP] *vLEI Client to Authenticator Protocol (VCAP) 1.0* — <https://vlei-auth.github.io/vcap/>
 - [RFC8032] Edwards-Curve Digital Signature Algorithm (EdDSA) — <https://www.rfc-editor.org/rfc/rfc8032>
 - [CTAP] FIDO Alliance, *Client to Authenticator Protocol v2.3* — <https://fidoalliance.org/specs/fido-v2.3-ps-20260226/fido-client-to-authenticator-protocol-v2.3-ps-20260226.html>
 - [VCAP-EI] [VCAP-EI 1.0](https://vlei-auth.github.io/vcap-ei/) — VCAP Enterprise Interface.
