@@ -62,7 +62,7 @@ VAF conformance is a claim about this specification only. GLEIF qualification an
 
 - **Authenticator:** an external hardware unit holding its attestation identity and exactly four independently stateful key slots in the initial profile.
 - **Platform:** an untrusted client of the authenticator, responsible for preparing the actual message, maintaining an Outbox and contacting external services.
-- **Manufacturer:** generates the device attestation identity and issues its manufacturer certificate chain.
+- **Manufacturer:** provisions the device attestation identity and issues its leaf certificate.
 - **Enterprise administrator:** verifies manufactured device identity, binds the tenant and enterprise root, and provisions the enterprise-signed `TrustConfig`.
 - **Ticket issuer:** validates device state and the requested action, persists the message, and signs a single-use Ticket that authorizes one digest-bound cryptographic operation.
 - **KERI agent / infrastructure:** validates and publishes key events, collects witness receipts and tracks network state; may provide Signify/KERIA-compatible application functionality.
@@ -93,7 +93,7 @@ Status reporting MUST distinguish the stages **device signed**, **enterprise arc
 
 ### 3.1 Device binding
 
-Each authenticator MUST have a protected device attestation identity. The initial profile provisions an Ed25519 attestation key pair and a manufacturer certificate chain. The device presents the chain itself while it is not in `PIN_READY` (binding-mode `GetState`, VCAP §7.4.3), so enrollment needs only the manufacturer root as trust anchor and no per-device file from the manufacturer. The enterprise MUST verify the chain and bind the attestation public key to its enrollment record before accepting state evidence, and thereafter verifies each `StateProof` with that enrolled public key.
+Each authenticator MUST have a protected device attestation identity. The initial profile uses an Ed25519 attestation key pair with a leaf certificate issued by the manufacturer; how the manufacturer provisions them is outside VAF. The device presents the certificate itself while it is not in `PIN_READY` (binding-mode `GetState`, VCAP §7.4.3), so enrollment needs only the manufacturer's CA certificates, with its root as trust anchor, and no per-device file from the manufacturer. The enterprise MUST verify the chain and bind the attestation public key to its enrollment record before accepting state evidence, and thereafter verifies each `StateProof` with that enrolled public key.
 
 The initial profile MUST implement a one-time enterprise binding. `BindEnterprise` fixes a `tenant` and `enterpriseRoot` for the physical device for its entire life, and a reset MUST preserve that binding. Moving a device to another enterprise requires replacing the device.
 
@@ -291,7 +291,7 @@ The enterprise root key is fixed on a device by `BindEnterprise` and the role ke
 
 ### 9.5 Attestation trust
 
-Enterprise enrollment MUST verify the attestation chain against a manufacturer root obtained out of band; the chain itself MAY come from the device (VCAP §7.4.3), since it is authenticated by that root. The runtime `StateProof` carries only the signature. Verifiers MUST use the enrolled attestation public key and a fresh challenge. State attestation is established only by a verified `StateProof` signature.
+Enterprise enrollment MUST verify the attestation chain against the manufacturer's root and issuing CA certificates obtained out of band (VCAP Appendix D.2); the chain itself MAY come from the device (VCAP §7.4.3), since it is authenticated by that root. The runtime `StateProof` carries only the signature. Verifiers MUST use the enrolled attestation public key and a fresh challenge. State attestation is established only by a verified `StateProof` signature.
 
 ## 10. VCAP integration and transport independence
 
@@ -316,7 +316,7 @@ Browsers and operating systems may send `GetInfo`, `ClientPIN` and `Reset` to th
 | Class | Who | Requirements |
 | --- | --- | --- |
 | **Authenticator** | Producer of authenticator hardware and firmware | Sections 3, 4, 6.1–6.2, 9.1, 10; VCAP class Authenticator (VCAP §2.1) |
-| **Manufacturer** | Party that generates the attestation identity and issues its certificate chain | Section 3.1; VCAP Appendix D.1, D.5 |
+| **Manufacturer** | Party that provisions the attestation identity and issues its leaf certificate | Section 3.1; VCAP Appendix D.1, D.5 |
 | **Platform** | Wallet or enterprise web page that uses the authenticator | Sections 6.2–6.5, 8.1, 8.4; VCAP classes Platform and Web platform; VCAP-EI class Platform |
 | **Enterprise Service** | Ticket issuer, archive and enrollment service of the enterprise | Sections 4.2, 5, 6.2–6.5, 8.2, 8.4, 9; VCAP class Enterprise service; VCAP-EI class Enterprise Service |
 | **Verifier** | Credential verifier and relying party | Sections 7, 8.3, 8.4 |
