@@ -95,7 +95,7 @@ Status reporting MUST distinguish the stages **device signed**, **enterprise arc
 
 Each authenticator MUST have a protected device attestation identity. The initial profile uses an Ed25519 attestation key pair with a leaf certificate issued by the manufacturer; how the manufacturer provisions them is outside VAF. The device presents the certificate itself while it is not in `PIN_READY` (binding-mode `GetState`, VCAP §7.4.3), so enrollment needs only the manufacturer's CA certificates, with its root as trust anchor, and no per-device file from the manufacturer. The enterprise MUST verify the chain and bind the attestation public key to its enrollment record before accepting state evidence, and thereafter verifies each `StateProof` with that enrolled public key.
 
-The initial profile MUST implement a one-time enterprise binding. `BindEnterprise` fixes a `tenant` and `enterpriseRoot` for the physical device for its entire life, and a reset MUST preserve that binding. Moving a device to another enterprise requires replacing the device.
+The initial profile MUST implement an enterprise binding. `BindEnterprise` fixes a `tenant` and `enterpriseRoot` for the physical device until the next reset, and a reset MUST remove that binding. Reusing a device, for the same or another enterprise, requires a reset and a new `BindEnterprise`.
 
 ### 3.2 Slots and owner classes
 
@@ -137,15 +137,15 @@ ENTERPRISE_BOUND + Personalize(enterprise-signed TrustConfig) + fresh UP
                                                 → PERSONALIZED_NO_PIN
   (PIN_READY instead, if a PIN was already set)
 PERSONALIZED_NO_PIN + ClientPIN.setPIN          → PIN_READY
-STOCK_UNBOUND + Reset                           → STOCK_UNBOUND
-ENTERPRISE_BOUND | PERSONALIZED_NO_PIN | PIN_READY + Reset
-  (within 10 s of power-on, 5-second hold)      → ENTERPRISE_BOUND, resetEpoch + 1
-Valid reset intent record found at start-up     → ENTERPRISE_BOUND, resetEpoch + 1
+Any state except RECOVERY_REQUIRED + Reset
+  (within 10 s of power-on, 5-second hold)      → STOCK_UNBOUND, resetEpoch + 1
+Valid reset intent record found at start-up     → STOCK_UNBOUND, resetEpoch + 1
 Unrecognized or corrupted persistent data       → RECOVERY_REQUIRED
-RECOVERY_REQUIRED + Reset (binding readable)    → ENTERPRISE_BOUND, resetEpoch + 1
+RECOVERY_REQUIRED + Reset (attestation identity → STOCK_UNBOUND, resetEpoch + 1
+  and reset epoch readable)
 ```
 
-The authenticator MUST treat missing or corrupted data in previously initialized storage as `RECOVERY_REQUIRED` and preserve that data until a Reset. In `RECOVERY_REQUIRED`, the authenticator accepts only `GetInfo`, status-mode `GetState`, `Cancel` and `Reset`. Reset destroys the unreadable data and starts a new reset epoch while keeping the enterprise binding; if the binding itself is unreadable, the device requires offline maintenance.
+The authenticator MUST treat missing or corrupted data in previously initialized storage as `RECOVERY_REQUIRED` and preserve that data until a Reset. In `RECOVERY_REQUIRED`, the authenticator accepts only `GetInfo`, status-mode `GetState`, `Cancel` and `Reset`. Reset destroys the unreadable data, removes the enterprise binding and starts a new reset epoch; if the attestation identity or the reset epoch is unreadable, the device requires offline maintenance.
 
 ### 4.2 Personalization and enterprise governance
 
@@ -159,7 +159,7 @@ A platform MUST present a touch to the user as confirmation of presence and MUST
 
 ### 4.4 Reset and retirement
 
-A physical reset MUST make the PIN record, all slot private keys (including pre-rotation historical keys) and all FIDO credentials unrecoverable, increment `resetEpoch`, remove personalized state, and retain the attestation identity and enterprise binding. The reset intent MUST survive power interruption, so that a reset interrupted after its intent record is written completes at the next start. Reset acts only on the device: the Enterprise Service MUST separately invalidate earlier Tickets, user roles, active sessions and network identities per Section 6.5.
+A physical reset MUST make the PIN record, all slot private keys (including pre-rotation historical keys) and all FIDO credentials unrecoverable, increment `resetEpoch`, remove the enterprise binding and personalized state, and retain the attestation identity and `resetEpoch`. `resetEpoch` never decreases, including across a later `BindEnterprise`, so configuration and Tickets of an earlier epoch never become valid again. The reset intent MUST survive power interruption, so that a reset interrupted after its intent record is written completes at the next start. Reset acts only on the device: the Enterprise Service MUST separately invalidate earlier Tickets, user roles, active sessions and network identities per Section 6.5.
 
 ## 5. Enterprise authorization model
 
@@ -222,7 +222,7 @@ The Enterprise Service:
 2. MUST revoke the sessions derived from the affected AIDs, and deactivate the agents controlled by the affected CLIENT AIDs.
 3. MUST record each affected AID as retired and report it as inactive through VCAP-EI `aid-status`.
 4. MUST request the issuers of vLEI credentials whose issuee is an affected WORK AID to revoke those credentials, following the vLEI EGF, and MUST record the request.
-5. MUST reuse a recovered device only after a Reset and a new Personalize.
+5. MUST reuse a recovered device only after a Reset, a new `BindEnterprise` and a new `Personalize`.
 6. MAY onboard a replacement device per VCAP §12.5, which creates new AIDs. Credentials for the employee are issued anew to the new WORK AIDs; any link between old and new AIDs is established by the enterprise's records and by the newly issued credentials.
 
 A Platform that learns that an AID is inactive MUST stop requesting Tickets and signatures for it.
@@ -281,7 +281,7 @@ On a displayless authenticator the user's touch confirms presence, and review of
 
 Each `StateProof` contains a persistent device identifier, reset epoch, configuration digest and the state of **all four slots**, which allows correlation across services. Results on the WebAuthn route are also signed with the attestation key, and are returned only to RP IDs listed in `TrustConfig`. Platforms and enterprises MUST limit disclosure of `StateProof`, retain it only as long as necessary, and share slot inventories only with the enrolling enterprise. VAF 1.0 defines no selective or pseudonymous state proofs.
 
-Before a PIN is set, the device also answers an unauthenticated request with a signed `BindingProof` (VCAP §7.4.3) carrying its device identifier, tenant and reset epoch, and on request its attestation certificate chain. This lets the enterprise learn the actual reset epoch without guessing, including after a Reset it did not order. The same proof identifies the device and its enterprise to any host it is connected to while it is not in PIN_READY; the same disclosure limits apply.
+Before a PIN is set, the device also answers an unauthenticated request with a signed `BindingProof` (VCAP §7.4.3) carrying its device identifier, its enterprise binding and reset epoch (none after a Reset), and on request its attestation certificate chain. This lets the enterprise learn whether the device is still in the binding it recorded and which reset epoch it is in, including after a Reset it did not order. The same proof identifies the device and its enterprise to any host it is connected to while it is not in PIN_READY; the same disclosure limits apply.
 
 ### 9.4 Reset, retirement and revocation
 
@@ -331,7 +331,7 @@ An implementation claiming `VAF-BASE-1` MUST satisfy the following requirements 
 | --- | --- | --- | --- |
 | VAF-BASE-01 | Authenticator | Authenticator-generated, non-exportable Ed25519 identity keys | `CreateIdentity`, KERI `icp` binding |
 | VAF-BASE-02 | Authenticator | Four isolated CLIENT/WORK slots, constrained operations | `GetState`, allowed owner/kind matrix |
-| VAF-BASE-03 | Authenticator | One-time enterprise binding and signed TrustConfig | `BindEnterprise`, `Personalize` |
+| VAF-BASE-03 | Authenticator | Enterprise binding until Reset and signed TrustConfig | `BindEnterprise`, `Personalize` |
 | VAF-BASE-04 | Authenticator | PIN token authorization and a new UP for each signature, with a touch sensor and presence indicator | `ClientPIN`, `Sign`, `UploadEnd` |
 | VAF-BASE-05 | Authenticator | Challenge-bound signed device state | `GetState` / `StateProof` |
 | VAF-BASE-06 | Authenticator | Message- and key-bound enterprise Ticket enforcement | Ticket verification and `KeyRef` |
@@ -370,7 +370,7 @@ Byte-exact test vectors for the derivations and structures of VCAP Sections 6, 8
 | BASE-T07 | WORK ROT signs with `old.next`, commits the prepared next key and advances the head exactly once. |
 | BASE-T08 | A lost KEL response is resolved by state comparison and the exact `Recover` result. |
 | BASE-T09 | A lost EXN response is resolved by the slot's signature counter and `Recover` while no later signature exists, and otherwise only through the Outbox and enterprise archive. |
-| BASE-T10 | Physical reset destroys prior-epoch secrets and preserves the enterprise root binding. |
+| BASE-T10 | Physical reset destroys prior-epoch secrets, removes the enterprise binding, keeps the attestation identity and increments `resetEpoch`. |
 | BASE-T11 | Malformed persistent state leads to `RECOVERY_REQUIRED`. |
 | BASE-T12 | The verifier rejects missing credential status, an invalid chain or an unverified anchored claim. |
 | BASE-T13 | After a reported device loss, the Enterprise Service refuses Tickets for the device and reports its AIDs as inactive. |
