@@ -1,6 +1,6 @@
 # vLEI Authenticator Framework (VAF) — Version 1.0
 
-*Editor's Draft — 4 November 2026*
+*Editor's Draft — 7 November 2026*
 
 **Specification identifier:** VAF-1.0  
 **Editor's Draft URL:** https://vlei-auth.github.io/vaf/  
@@ -34,7 +34,7 @@ VAF specifies (a) roles and architectural boundaries; (b) authenticator-level id
 
 VCAP specifies command values, parameters, error semantics, framing and transport bindings. KERI event serialization, CESR encoding, ACDC schemas, IPEX messages, witness infrastructure and OIDC session tokens are governed by their respective specifications.
 
-VAF 1.0 does not cover: group (multi-signature) AIDs; delegated inception and rotation (`dip`, `drt`); rotation of CLIENT AIDs; continuation of an AID on another authenticator (Section 6.5); KERI versions and serializations other than KERI 1.0 JSON with the syntax of VCAP §8.4.3; selective or pseudonymous state proofs; and recovery of operations that span several non-KEL messages, such as IPEX grant and admit. Section 11.3 lists candidate extension profiles for some of these.
+Participation of a slot in group (multi-signature) AIDs is specified by the profile `VAF-GROUP-1` (Section 11.4), which builds on the optional group member signing feature of VCAP. VAF 1.0 does not cover: delegated inception and rotation (`dip`, `drt`), including delegated group AIDs; rotation of CLIENT AIDs; continuation of an AID on another authenticator (Section 6.5); KERI versions and serializations other than KERI 1.0 JSON with the syntax of VCAP §8.4.3; selective or pseudonymous state proofs; and recovery of operations that span several non-KEL messages, such as IPEX grant and admit. Section 11.3 lists candidate extension profiles for some of these.
 
 ### 1.3 Conformance terminology
 
@@ -87,7 +87,7 @@ The initial profile protects keys against extraction through the authenticator i
 
 A normal signature therefore takes one business exchange with the authenticator. The authenticator enforces the KEL head, so a Ticket based on an outdated head yields no signature. When the issuer has no archived head for the slot, when an earlier outcome is unknown, or when policy requires it, the platform first calls `GetState` with an issuer-generated, single-use challenge and submits the resulting `StateProof` with the message (VCAP §12.2).
 
-Status reporting MUST distinguish the stages **device signed**, **enterprise archived**, **network accepted**, **credential verified** and **business authorized**.
+Status reporting MUST distinguish the stages **device signed**, **enterprise archived**, **network accepted**, **credential verified** and **business authorized**. Under `VAF-GROUP-1`, a group event or message also passes the stage **threshold met** (member signatures meeting the group's thresholds collected) before it is network accepted or delivered.
 
 ## 3. Authenticator and identity model
 
@@ -104,9 +104,9 @@ VCAP 1.0 defines exactly four slots (`0..3`), each with owner `CLIENT=1` or `WOR
 | Owner | Purpose | Allowed operation kinds |
 | --- | --- | --- |
 | `CLIENT` | Client AID that controls the employee's KERI agent | `ICP`, `IXN` |
-| `WORK` | Work AID used for vLEI credentials and exchanges | `ICP`, `IXN`, `ROT`, `EXN`, `RPY` |
+| `WORK` | Work AID used for vLEI credentials and exchanges | `ICP`, `IXN`, `ROT`, `EXN`, `RPY`; with `VAF-GROUP-1` also `GROUP`, `GROUP_SUPERSEDE` and `GROUP_EXN` |
 
-Each slot holds one single-key, non-delegated KERI AID whose keys are all generated inside the authenticator. The initial profile advertises exactly the operations in the table above. Group (multi-signature) AIDs, delegated inception and rotation, and CLIENT rotation are outside VAF 1.0 (Section 1.2).
+Each slot holds one single-key, non-delegated KERI AID whose keys are all generated inside the authenticator. The initial profile advertises exactly the operations in the table above. A WORK slot can in addition be a member of group AIDs under `VAF-GROUP-1` (Section 3.6); the group AID is not held in the slot. Delegated inception and rotation, and CLIENT rotation, are outside VAF 1.0 (Section 1.2).
 
 The agent that a CLIENT AID controls is identified by an agent profile. VAF 1.0 places no requirement on the agent implementation; VCAP-EI 1.0 defines the KERIA agent profile, under which the enterprise creates a KERIA agent from the CLIENT inception and relays the platform's Agent requests under the employee's enterprise bearer token. Reading from or updating the Agent does not use the authenticator; only signatures by slot keys do.
 
@@ -114,7 +114,7 @@ The agent that a CLIENT AID controls is identified by an agent profile. VAF 1.0 
 
 The authenticator MUST generate current and next private signing keys inside its trust boundary; VCAP provides no command that imports, exports or accepts an external private key. On KERI inception, the authenticator checks that the event's current key and next-key commitment match its own generated keys. Before a rotation, `PrepareRotation` generates the new next key inside the device. On rotation, the authenticator signs with the previously committed `old.next` private key and checks that the event commits to the prepared new next key. Every key and commitment in a signed event is therefore an authenticator-generated key.
 
-The initial profile constrains `icp` and `rot` to one current key (`kt="1"`), one next-key commitment (`nt="1"`), and BLAKE3-256 next-key digests. This is a subset of KERI.
+The initial profile constrains a slot's own `icp` and `rot` to one current key (`kt="1"`), one next-key commitment (`nt="1"`), and BLAKE3-256 next-key digests. This is a subset of KERI. In a group `icp` or `rot` that a slot signs as a member (Section 3.6), the authenticator checks that its own current key and its own next-key commitment each appear exactly once in `k` and `n`; the other members' keys come from their own authenticators or key stores and are checked by the Enterprise Service.
 
 ### 3.4 KERI event head and fork prevention
 
@@ -123,6 +123,22 @@ Each ACTIVE slot MUST keep a durable head describing its most recently committed
 ### 3.5 Employee AIDs and legal-entity AIDs
 
 AIDs held in the authenticator's slots belong to the employee. They are distinct from the legal entity's AID and from any group AID in which the employee participates. Authority over the legal entity's AID is defined by that AID's own key state and by the vLEI EGF; an employee's WORK AID and any role credential issued to it convey exactly the authority stated in that credential.
+
+### 3.6 Group AIDs (`VAF-GROUP-1`)
+
+A group AID, such as a legal entity's AID controlled by several authorized representatives, lists in `k` and `n` the keys and next-key commitments of its members and is controlled through the thresholds `kt` and `nt`. Under `VAF-GROUP-1`, an ACTIVE WORK slot takes part as a member: it signs the group's `icp`, `ixn` and `rot` with its current key under kind `GROUP`, the group's `exn` messages (for example an IPEX `grant` of a credential the group issues) under kind `GROUP_EXN`, and the group's `rpy` messages (for example an end-role reply for the group) under kind `RPY`, and sends each signature to the other members in a `/multisig/*` `exn` signed under kind `EXN` (VCAP §12.10). The group's KEL is not held by the authenticator; each member slot keeps one **group record** per group AID it has signed for, holding the sequence number, SAID and signature of its latest signed event of that group (VCAP §5.2).
+
+Preventing a fork of a group KEL is shared between three parties:
+
+1. **Authenticator.** For each (slot, group AID) it signs at most one event per sequence number, only at increasing sequence numbers, and, when the next sequence number follows directly, only an event whose `p` is the SAID it signed before (VCAP §8.4.4). Without the `GROUP_SUPERSEDE` capability this holds even if the platform and the Enterprise Service are compromised. `GROUP_SUPERSEDE` signs one replacement event at the record's own sequence number and with the same prior event, at most once per sequence number, needs its own capability bit and is recorded in the group record; it can also reuse the record of an abandoned group inception. A slot holds at most `GROUP_RECORDS` (VCAP Appendix A: two) group records, stored and committed with the slot's own state.
+2. **Enterprise Service.** It approves only events that extend the group's network-accepted key state, at most one original per (group AID, sequence number) across all members it serves, and issues `GROUP_SUPERSEDE` Tickets only for a proposal it has determined, on the grounds of VCAP §12.8 item 7.5, cannot reach its threshold, under a separately controlled role key (VCAP §12.8 item 7). It also verifies what the authenticator cannot: membership in the current key state, thresholds, prior next-key commitments and witnesses.
+3. **KERI.** A competing event needs signatures meeting the group's threshold, and witnesses and watchers detect duplicity among accepted events.
+
+The platform builds the group event and coordinates with the other members, but it is untrusted (Section 2.2): it can delay or withhold a member signature, not produce one. A platform SHOULD compare a group event with the group's key state and show the group AID, event type and sequence number to the user before requesting the Ticket; this aids the user and does not replace the checks above.
+
+A member's share in a group is its slot's current key and next-key commitment, the same ones its own AID uses, so the slot's own rotation (`ROT`) changes its share in every group it belongs to. The Enterprise Service coordinates a member's own rotations with the rotations of its groups (VCAP §12.8 item 7.7, §12.10).
+
+Members of a group may hold their keys on different authenticators, enterprises or key stores; the authenticator's guarantee covers only its own slots. In VAF 1.0 every member key of a group in which a slot takes part is an Ed25519 key and every next-key commitment a BLAKE3-256 digest (VCAP §8.4.4); the Enterprise Service checks this also for events whose keys the authenticator does not see. A group whose members all depend on the same Enterprise Service relies on that service for item 2; the authenticator's item 1 still holds without it.
 
 ## 4. Authenticator lifecycle
 
@@ -188,7 +204,7 @@ The Ticket issuer MUST base each Ticket on reliable state evidence: a fresh `Sta
 
 ### 5.4 Operation categories
 
-The baseline capability registry consists of the five VCAP signing kinds (`ICP`, `IXN`, `ROT`, `EXN`, `RPY`) combined with the owners listed in Section 3.2 (seven valid combinations, VCAP Appendix B). VAF defines their authorization purpose; VCAP defines the numeric values and exact validation algorithm. Agent requests that produce no slot signature (reads, contact and notification metadata) are authorized by the enterprise PDP from the employee's bearer token and are not Ticket operations (VCAP-EI §7.11, Appendix C).
+The baseline capability registry consists of the five VCAP signing kinds (`ICP`, `IXN`, `ROT`, `EXN`, `RPY`) combined with the owners listed in Section 3.2 (seven valid combinations, VCAP Appendix B). `VAF-GROUP-1` adds three combinations, WORK `GROUP`, WORK `GROUP_SUPERSEDE` and WORK `GROUP_EXN`. VAF defines their authorization purpose; VCAP defines the numeric values and exact validation algorithm. Agent requests that produce no slot signature (reads, contact and notification metadata) are authorized by the enterprise PDP from the employee's bearer token and are not Ticket operations (VCAP-EI §7.11, Appendix C).
 
 ## 6. Signing and recovery
 
@@ -208,6 +224,8 @@ When a response to `Sign`, `UploadEnd`, `CreateIdentity` or `PrepareRotation` is
 
 Every signature, including `EXN` and `RPY`, advances the slot's signature counter, so a `StateProof` shows whether a Ticket was used. The authenticator keeps the most recent signature of each slot; while no later signature has been made, a lost non-KEL response is retrieved with `Recover`. Older non-KEL signatures come only from the platform Outbox and the enterprise archive. Recovery of operations that span several messages is outside VAF 1.0 (Section 1.2).
 
+Under `VAF-GROUP-1`, a member signature on a group event advances the slot's signature counter and replaces the slot's group record for that group AID. A `StateProof` requested with the group AID reports the record, and `Recover` returns its signature until a later event of the same group AID replaces it, also after later signatures of other kinds. Older member signatures come from the platform Outbox and the enterprise archive (VCAP §12.3). A `GROUP_EXN` signature does not change the group record and is recovered as an `EXN`.
+
 ### 6.4 KERI network acceptance
 
 A local commit is reported as **device signed**; witness receipts, completed delegation, KEL acceptance and business settlement are reported only from their own evidence. When an authoritative party permanently rejects a committed event and the Enterprise Service accepts that rejection, it marks the slot as rejected and issues no further Tickets for it in the current reset epoch; the slot's head stays as committed, and reusing the slot requires a Reset. After a temporary failure, the enterprise redelivers the original signature.
@@ -224,6 +242,7 @@ The Enterprise Service:
 4. MUST request the issuers of vLEI credentials whose issuee is an affected WORK AID to revoke those credentials, following the vLEI EGF, and MUST record the request.
 5. MUST reuse a recovered device only after a Reset, a new `BindEnterprise` and a new `Personalize`.
 6. MAY onboard a replacement device per VCAP §12.5, which creates new AIDs. Credentials for the employee are issued anew to the new WORK AIDs; any link between old and new AIDs is established by the enterprise's records and by the newly issued credentials.
+7. Under `VAF-GROUP-1`, MUST stop issuing Tickets for group events and messages on behalf of the affected WORK AIDs, MUST inform the other members of each group AID in which an affected WORK AID is a member, through the group's agreed coordination channel or out of band, and MUST record that notification, so that they can rotate the lost member key out of the group and, if the employee remains a member, a new WORK AID of the employee in.
 
 A Platform that learns that an AID is inactive MUST stop requesting Tickets and signatures for it.
 
@@ -255,6 +274,8 @@ Platforms MUST submit a `StateProof` with the Ticket request whenever their know
 
 A Ticket issuer MUST verify enrollment, attestation public key, tenant, reset epoch, authoritative current state, role authorization, request content, message format and risk before signing a Ticket. Its state evidence is either a `StateProof` answering a single-use challenge it generated, or its archived head and signature counter (an archived original signature, or network-accepted head progression). It MUST persist an audit record and the original message before signing. Ticket issuance follows the enterprise's current permission state: after a permission is revoked, the issuer denies further Tickets for it, regardless of the role keys still installed on the authenticator.
 
+For `GROUP`, `GROUP_SUPERSEDE` and `GROUP_EXN` Tickets, and for `RPY` Tickets of a group AID, the issuer additionally follows VCAP §12.8 item 7: its state basis is the group's network-accepted key state together with the slot's group record; it approves at most one original per (group AID, sequence number) across all members it serves; and it signs `GROUP_SUPERSEDE` only under a role key reserved for that capability, after recording a determination on the grounds of VCAP §12.8 item 7.5. Before a WORK `ROT` Ticket for a slot that holds group records, it checks the effect on each group (VCAP §12.8 item 7.7).
+
 Before issuing a Ticket for an IPEX admit of a credential that the enterprise will treat as a vLEI credential, the Ticket issuer MUST verify, as the verifier of Section 8.3, that: the credential's issuer chain ends at the GLEIF Root of Trust whose AID the enterprise has configured out of band; each credential in the chain has the schema and the edges that the vLEI EGF requires for its type (QVI, legal entity, OOR authorization, OOR, ECR authorization, ECR); the issuee is the slot's AID; and no credential in the chain is revoked, according to status read from its registry for this decision rather than from a cache. A credential that fails these checks MAY be admitted under an explicit enterprise policy, but MUST NOT then be treated or displayed as a vLEI credential.
 
 ### 8.3 Verifier
@@ -279,7 +300,7 @@ On a displayless authenticator the user's touch confirms presence, and review of
 
 ### 9.3 Privacy of device and slots
 
-Each `StateProof` contains a persistent device identifier, reset epoch, configuration digest and the state of **all four slots**, which allows correlation across services. Results on the WebAuthn route are also signed with the attestation key, and are returned only to RP IDs listed in `TrustConfig`. Platforms and enterprises MUST limit disclosure of `StateProof`, retain it only as long as necessary, and share slot inventories only with the enrolling enterprise. VAF 1.0 defines no selective or pseudonymous state proofs.
+Each `StateProof` contains a persistent device identifier, reset epoch, configuration digest and the state of **all four slots**, which allows correlation across services. Results on the WebAuthn route are also signed with the attestation key, and are returned only to RP IDs listed in `TrustConfig`. A `StateProof` requested with a group AID also shows that the employee's slot is a member of that group. Platforms and enterprises MUST limit disclosure of `StateProof`, retain it only as long as necessary, and share slot inventories only with the enrolling enterprise. VAF 1.0 defines no selective or pseudonymous state proofs.
 
 Before a PIN is set, the device also answers an unauthenticated request with a signed `BindingProof` (VCAP §7.4.3) carrying its device identifier, its enterprise binding and reset epoch (none after a Reset), and on request its attestation certificate chain. This lets the enterprise learn whether the device is still in the binding it recorded and which reset epoch it is in, including after a Reset it did not order. The same proof identifies the device and its enterprise to any host it is connected to while it is not in PIN_READY; the same disclosure limits apply.
 
@@ -321,7 +342,7 @@ Browsers and operating systems may send `GetInfo`, `ClientPIN` and `Reset` to th
 | **Enterprise Service** | Ticket issuer, archive and enrollment service of the enterprise | Sections 4.2, 5, 6.2–6.5, 8.2, 8.4, 9; VCAP class Enterprise service; VCAP-EI class Enterprise Service |
 | **Verifier** | Credential verifier and relying party | Sections 7, 8.3, 8.4 |
 
-A product claims conformance for each class it implements. The optional authenticator features of VCAP §2.1 (USB HID, NFC and USB CCID transports, WebAuthn route) are declared with the claim.
+A product claims conformance for each class it implements. The optional authenticator features of VCAP §2.1 (USB HID, NFC and USB CCID transports, WebAuthn route, group member signing) are declared with the claim.
 
 ### 11.2 VAF-BASE-1
 
@@ -344,16 +365,33 @@ An implementation claiming `VAF-BASE-1` MUST satisfy the following requirements 
 | VAF-BASE-13 | Enterprise Service | Ticket issuance per Section 8.2 and VCAP-EI | VCAP-EI conformance tests |
 | VAF-BASE-14 | Enterprise Service, Platform | Handling of device loss and Reset | Section 6.5 |
 
-`VAF-BASE-1` covers single-key personal AIDs. Group operations, delegated events, on-device ACDC verification, anchored presentations, IPEX operation recovery and in-place enterprise root rotation belong to the candidate profiles below.
+`VAF-BASE-1` covers single-key personal AIDs. Participation in group AIDs is `VAF-GROUP-1` (Section 11.4). Delegated events, on-device ACDC verification, anchored presentations, IPEX operation recovery and in-place enterprise root rotation belong to the candidate profiles below.
 
 ### 11.3 Candidate extension profiles
 
 - **VAF-IPEX-1** — complete hardware-assisted IPEX Grant/Admit signing and operation-recovery semantics.
-- **VAF-GROUP-1** — participating-member keys, threshold/multisig workflow, group AID state and group-specific recovery.
 - **VAF-PRES-1** — signed/anchored presentation assurance: ordinary operations use a signed holder proof, high-risk operations require verified KERI anchoring, and a verifier reports `Anchored` only after verifying the anchor; with privacy-related disclosure requirements.
 - **VAF-POLICY-1** — enterprise risk classes LOW (short-lived read-only access), MEDIUM (ordinary signing and credential presentation) and HIGH (privileged operations or anchored presentations); a central PDP decides, a LOW read-only decision may be cached under a scoped, time-limited lease, and every HIGH operation receives a fresh online decision.
 
 These profiles are not specified by VAF 1.0; a product can claim one only after it is specified.
+
+### 11.4 VAF-GROUP-1
+
+`VAF-GROUP-1` builds on `VAF-BASE-1`: an implementation claiming it MUST also claim `VAF-BASE-1` for the same class, and MUST satisfy the following requirements:
+
+| ID | Class | Requirement | Evidence or limit |
+| --- | --- | --- | --- |
+| VAF-GROUP-01 | Authenticator | Group member signing of VCAP §2.1, declared by GetInfo option `vcapGroup` | VCAP §§ 7.1, 7.7 kinds 7, 8 and 9 |
+| VAF-GROUP-02 | Authenticator | Member key and next-key commitment binding in group `icp` / `rot` | VCAP §8.4.4 item 4 |
+| VAF-GROUP-03 | Authenticator | At most one event per (slot, group AID, sequence number), increasing sequence numbers, prior-SAID check for the following sequence number, `GROUP_SUPERSEDE` only at the record's own sequence number with the same prior event and at most once per sequence number, or to reuse an abandoned inception record; `GROUP_EXN` only for a recorded group AID; group records committed atomically with the slot | VCAP §8.4.4 items 5–6, §8.5.4, §8.7 |
+| VAF-GROUP-04 | Authenticator | Group record state in `StateProof` and recovery of the recorded signature | VCAP §§ 7.4.2, 7.8, 9.3 |
+| VAF-GROUP-05 | Enterprise Service | Group Ticket issuance per VCAP §12.8 item 7 and VCAP-EI §§ 7.5, 7.15, including group messages (purposes 6, 20, 21) | VCAP-EI conformance tests |
+| VAF-GROUP-06 | Enterprise Service | `GROUP_SUPERSEDE` confined to a separately controlled role key, with a recorded determination per use | Audit records |
+| VAF-GROUP-07 | Platform, Enterprise Service | Group participation and per-stage status (member signed, threshold met, network accepted or delivered, abandoned) | VCAP §12.10, VCAP-EI §§ 7.17, 9.6 |
+| VAF-GROUP-08 | Enterprise Service, Platform | Device loss and Reset of a member: the affected member key is reported as lost to the other members, so that the group rotates it out | Section 6.5 item 7 |
+| VAF-GROUP-09 | Enterprise Service | A member's own rotation coordinated with the rotations of its groups | VCAP §12.8 item 7.7 |
+
+A Reset deletes the slot's group records together with its keys (VCAP §5.2). Because a group's continuity does not depend on any single member, a group can survive the loss of a member's authenticator by rotating that member out with the remaining members' signatures, provided its thresholds allow it; the Enterprise Service SHOULD choose thresholds with that in mind.
 
 ## 12. Conformance tests
 
@@ -376,6 +414,24 @@ Byte-exact test vectors for the derivations and structures of VCAP Sections 6, 8
 | BASE-T13 | After a reported device loss, the Enterprise Service refuses Tickets for the device and reports its AIDs as inactive. |
 | BASE-T14 | An event that deviates from the syntax of VCAP §8.4.3 (whitespace, field order, `s` encoding, escapes) is rejected with `INVALID_KERI_EVENT`. |
 
+An implementation claiming `VAF-GROUP-1` MUST in addition pass the following cases:
+
+| Case | Expected outcome |
+| --- | --- |
+| GROUP-T01 | A group `icp` with the slot's current key in `k` and its next-key commitment in `n` is signed and creates a group record; one without either is rejected with `KEY_BINDING`. |
+| GROUP-T02 | A group event whose `i` is the AID of any slot is rejected with `KEY_BINDING`. |
+| GROUP-T03 | Any event of the same group AID at the recorded or a lower sequence number, including the recorded event itself, is rejected with `INVALID_STATE` under kind `GROUP`. |
+| GROUP-T04 | An event at the following sequence number whose `p` is not the recorded SAID is rejected; an event at a later sequence number is signed. |
+| GROUP-T05 | `GROUP_SUPERSEDE` signs one replacement at the recorded sequence number, sets `replaced` and increments `supersedeCount`; a second replacement at the same sequence number, one at any other sequence number, and one without capability bit 15 are rejected. |
+| GROUP-T06 | A lost group response is resolved by a `StateProof` carrying the group record and the exact `Recover` result, also after a later EXN signature. |
+| GROUP-T07 | A third group AID on one slot is rejected with `NO_SPACE`, and a group AID already recorded on another slot with `KEY_BINDING`; power loss during a group signature leaves the slot with both its counter and its group record either before or after the signature; Reset deletes all group records. |
+| GROUP-T08 | The Enterprise Service refuses a second original for the same (group AID, sequence number) and a group event that does not extend the accepted key state. |
+| GROUP-T09 | A group event with a `k` entry other than a 44-byte `D` key, an `n` entry other than a 44-byte `E` digest, or type `dip` / `drt` is rejected with `INVALID_KERI_EVENT`; one with a weighted threshold array is signed. |
+| GROUP-T10 | A group `ixn` on a slot without a record for the group AID is signed and creates a record; `GROUP_EXN` for a recorded group AID is signed and leaves the record unchanged, without a record it is rejected with `INVALID_STATE`, and with `i` equal to a slot AID with `KEY_BINDING`. |
+| GROUP-T11 | `GROUP_SUPERSEDE` whose `p` differs from the replaced event's is rejected; with every record in use, `GROUP_SUPERSEDE` of a new group `icp` replaces the abandoned inception record with the lowest `signCounter` and shows the reuse with `replaced` set and `supersedeCount` 1, and is rejected when no record has `t = icp` and `seq = 0`. |
+| GROUP-T12 | The Enterprise Service refuses a WORK `ROT` Ticket that would leave the slot outside the latest next-key commitment of one of its groups, and approves a joining member's signature on a group `rot` authorized by the other signers. |
+| GROUP-T13 | The platform encodes member signatures with the CESR codes of VCAP §9.4 for `icp`, `ixn`, `rot` with equal and different indices, a joining member's `rot`, and a group `exn`. |
+
 Transport tests additionally cover, for each declared transport, CTAPHID channel allocation, CCID card-session handling, multi-frame packet reconstruction, busy-state isolation between held and non-held contexts, keepalive and cancel semantics, NFC command chaining, negative framing tests and cross-transport transaction-recovery tests.
 
 ## 13. Versioning
@@ -397,7 +453,8 @@ Changes to VAF identity and security semantics, VCAP command bytes or transport 
 | Conformance classes and optional features | § 2.1 |
 | KERI event syntax and encodings | §§ 6.2, 6.4, 8.4.3 |
 | Transport | § 11 (11.1 message encoding, 11.2 CTAPHID, 11.3 NFC, 11.4 USB CCID) |
-| Group, delegation and IPEX boundaries | §§ 5.2, 8.4.2, 8.5, 12.3 |
+| Group member signing (`VAF-GROUP-1`) | §§ 5.2, 7.4.2, 7.7, 7.8, 7.14.5, 8.4.4, 8.5.4, 8.7, 9.3, 9.4, 12.3, 12.8 item 7, 12.10, 13.1, 13.2 item 8 |
+| Delegation and IPEX boundaries | §§ 8.4.2, 8.5, 12.3 |
 
 ## B. References
 
