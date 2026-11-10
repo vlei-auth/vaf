@@ -1,6 +1,6 @@
 # vLEI Authenticator Framework (VAF) — Version 1.0
 
-*Editor's Draft — 7 November 2026*
+*Editor's Draft — 10 November 2026*
 
 **Specification identifier:** VAF-1.0  
 **Editor's Draft URL:** https://vlei-auth.github.io/vaf/  
@@ -155,13 +155,12 @@ ENTERPRISE_BOUND + Personalize(enterprise-signed TrustConfig) + fresh UP
 PERSONALIZED_NO_PIN + ClientPIN.setPIN          → PIN_READY
 Any state except RECOVERY_REQUIRED + Reset
   (within 10 s of power-on, 5-second hold)      → STOCK_UNBOUND, resetEpoch + 1
-Valid reset intent record found at start-up     → STOCK_UNBOUND, resetEpoch + 1
 Unrecognized or corrupted persistent data       → RECOVERY_REQUIRED
 RECOVERY_REQUIRED + Reset (attestation identity → STOCK_UNBOUND, resetEpoch + 1
   and reset epoch readable)
 ```
 
-The authenticator MUST treat missing or corrupted data in previously initialized storage as `RECOVERY_REQUIRED` and preserve that data until a Reset. In `RECOVERY_REQUIRED`, the authenticator accepts only `GetInfo`, status-mode `GetState`, `Cancel` and `Reset`. Reset destroys the unreadable data, removes the enterprise binding and starts a new reset epoch; if the attestation identity or the reset epoch is unreadable, the device requires offline maintenance.
+The authenticator MUST treat missing or corrupted data in previously initialized storage as `RECOVERY_REQUIRED` and preserve that data until a Reset. In `RECOVERY_REQUIRED`, the authenticator accepts only `GetInfo`, status-mode `GetState`, `Cancel` and `Reset`. Reset deletes the unreadable data, removes the enterprise binding and starts a new reset epoch; if the attestation identity or the reset epoch is unreadable, the device requires offline maintenance.
 
 ### 4.2 Personalization and enterprise governance
 
@@ -169,13 +168,13 @@ The authenticator MUST verify `TrustConfig` against the bound enterprise root, t
 
 ### 4.3 PIN and UP
 
-The device MUST enforce its own PIN retry limits with durable failed-attempt accounting, and MUST receive the PIN encrypted under CTAP `pinUvAuthProtocol 2` (P-256 ECDH, HKDF-SHA-256, AES-256-CBC, HMAC-SHA-256), which VCAP `ClientPIN` uses unchanged. VCAP 1.0 uses the CTAP PIN retry and power-cycle lockout rules, and adds `READ`, `SIGN` and `MANAGE` token permissions above the CTAP permission bits. PIN-derived material and tokens MUST be discarded when the context ends. Every signature by a slot key (`Sign`, `UploadEnd`, or a signature requested through WebAuthn) MUST consume its own new user action, either a sensor press or, over NFC, the tap into the reader's field (one tap per field session); over USB HID and USB CCID the action is always a sensor press. `BindEnterprise` and `Personalize` also require a touch, and `Reset` requires a 5-second hold. The authenticator MUST have a touch sensor and a presence indicator light (VCAP §8.2).
+The device MUST enforce its own PIN retry limits with durable failed-attempt accounting, and MUST receive the PIN encrypted under CTAP `pinUvAuthProtocol 2` (P-256 ECDH, HKDF-SHA-256, AES-256-CBC, HMAC-SHA-256), which VCAP `ClientPIN` uses unchanged. An authenticator MAY in addition offer `pinUvAuthProtocol 1` to standard FIDO clients; VCAP permissions are granted only under protocol 2 (VCAP §7.2). VCAP 1.0 uses the CTAP PIN retry and power-cycle lockout rules, and adds `READ`, `SIGN` and `MANAGE` token permissions above the CTAP permission bits. PIN-derived material and tokens MUST be discarded when the context ends. Every signature by a slot key (`Sign`, `UploadEnd`, or a signature requested through WebAuthn) MUST consume its own new user action, either a sensor press or, over NFC, the tap into the reader's field (one tap per field session); over USB HID and USB CCID the action is always a sensor press. `BindEnterprise` and `Personalize` also require a touch, and `Reset` requires a 5-second hold. The authenticator MUST have a touch sensor and a presence indicator light (VCAP §8.2).
 
 A platform MUST present a touch to the user as confirmation of presence and MUST NOT present it as approval of message content. Assurance for message content comes from content confirmation outside the authenticator and from the Ticket issuer's approval (Section 9.2).
 
 ### 4.4 Reset and retirement
 
-A physical reset MUST make the PIN record, all slot private keys (including pre-rotation historical keys) and all FIDO credentials unrecoverable, increment `resetEpoch`, remove the enterprise binding and personalized state, and retain the attestation identity and `resetEpoch`. `resetEpoch` never decreases, including across a later `BindEnterprise`, so configuration and Tickets of an earlier epoch never become valid again. The reset intent MUST survive power interruption, so that a reset interrupted after its intent record is written completes at the next start. Reset acts only on the device: the Enterprise Service MUST separately invalidate earlier Tickets, user roles, active sessions and network identities per Section 6.5.
+A physical reset MUST delete the PIN record, all slot private keys (including pre-rotation historical keys) and all FIDO credentials, increment `resetEpoch`, remove the enterprise binding and personalized state, and retain the attestation identity and `resetEpoch`. `resetEpoch` never decreases, including across a later `BindEnterprise`, so configuration and Tickets of an earlier epoch never become valid again. Reset defines no intermediate state: an interrupted reset is repeated by the user, and MUST NOT leave a slot key of the old epoch usable (VCAP §7.12.2). Deletion is logical; keys may remain on the storage medium (VCAP §13.2 item 10). Reset acts only on the device: the Enterprise Service MUST separately invalidate earlier Tickets, user roles, active sessions and network identities per Section 6.5.
 
 ## 5. Enterprise authorization model
 
@@ -410,7 +409,7 @@ Byte-exact test vectors for the derivations and structures of VCAP Sections 6, 8
 | BASE-T07 | WORK ROT signs with `old.next`, commits the prepared next key and advances the head exactly once. |
 | BASE-T08 | A lost KEL response is resolved by state comparison and the exact `Recover` result. |
 | BASE-T09 | A lost EXN response is resolved by the slot's signature counter and `Recover` while no later signature exists, and otherwise only through the Outbox and enterprise archive. |
-| BASE-T10 | Physical reset destroys prior-epoch secrets, removes the enterprise binding, keeps the attestation identity and increments `resetEpoch`. |
+| BASE-T10 | Physical reset deletes prior-epoch secrets, removes the enterprise binding, keeps the attestation identity and increments `resetEpoch`; a reset interrupted by power loss at any point leaves the device in `STOCK_UNBOUND` or `RECOVERY_REQUIRED`, with no slot of the old epoch usable, and a repeated reset completes. |
 | BASE-T11 | Malformed persistent state leads to `RECOVERY_REQUIRED`. |
 | BASE-T12 | The verifier rejects missing credential status, an invalid chain or an unverified anchored claim. |
 | BASE-T13 | After a reported device loss, the Enterprise Service refuses Tickets for the device and reports its AIDs as inactive. |
