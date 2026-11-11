@@ -136,7 +136,7 @@ AIDs held in the authenticator's slots belong to the employee. They are distinct
 
 ### 3.6 Group AIDs (`VAF-GROUP-1`)
 
-A group AID, such as a legal entity's AID controlled by several authorized representatives, lists in `k` and `n` the keys and next-key commitments of its members and is controlled through the thresholds `kt` and `nt`. Under `VAF-GROUP-1`, an ACTIVE WORK slot takes part as a member: it signs the group's `icp`, `ixn` and `rot` with its current key under kind `GROUP`, the group's `exn` messages (for example an IPEX `grant` of a credential the group issues) under kind `GROUP_EXN`, and the group's `rpy` messages (for example an end-role reply for the group) under kind `RPY`, and sends each signature to the other members in a `/multisig/*` `exn` signed under kind `EXN` (VCAP §12.10). The group's KEL is not held by the authenticator; each member slot keeps one **group record** per group AID it has signed for, holding the sequence number, SAID and signature of its latest signed event of that group (VCAP §5.2).
+A group AID, such as a legal entity's AID controlled by several authorized representatives, lists in `k` and `n` the keys and next-key commitments of its members and is controlled through the thresholds `kt` and `nt`. Under `VAF-GROUP-1`, an ACTIVE WORK slot takes part as a member: it signs the group's `icp`, `ixn` and `rot` with its current key under kind `GROUP`, the group's `exn` messages (for example an IPEX `grant` of a credential the group issues) under kind `GROUP_EXN`, and the group's `rpy` messages (for example an end-role reply for the group) under kind `RPY`, and sends each signature to the other members in a `/multisig/*` `exn` signed under kind `EXN` (VCAP §12.9). The group's KEL is not held by the authenticator; each member slot keeps one **group record** per group AID it has signed for, holding the sequence number, SAID and signature of its latest signed event of that group (VCAP §5.2).
 
 Preventing a fork of a group KEL is shared between three parties:
 
@@ -146,7 +146,7 @@ Preventing a fork of a group KEL is shared between three parties:
 
 The platform builds the group event and coordinates with the other members, but it is untrusted (Section 2.2): it can delay or withhold a member signature, not produce one. A platform SHOULD compare a group event with the group's key state and show the group AID, event type and sequence number to the user before requesting the Ticket; this aids the user and does not replace the checks above.
 
-A member's share in a group is its slot's current key and next-key commitment, the same ones its own AID uses, so the slot's own rotation (`ROT`) changes its share in every group it belongs to. The Enterprise Service coordinates a member's own rotations with the rotations of its groups (VCAP §12.8 item 7.7, §12.10).
+A member's share in a group is its slot's current key and next-key commitment, the same ones its own AID uses, so the slot's own rotation (`ROT`) changes its share in every group it belongs to. The Enterprise Service coordinates a member's own rotations with the rotations of its groups (VCAP §12.8 item 7.7, §12.9).
 
 Members of a group may hold their keys on different authenticators, enterprises or key stores; the authenticator's guarantee covers only its own slots. In VAF 1.0 every member key of a group in which a slot takes part is an Ed25519 key and every next-key commitment a BLAKE3-256 digest (VCAP §8.4.4); the Enterprise Service checks this also for events whose keys the authenticator does not see. A group whose members all depend on the same Enterprise Service relies on that service for item 2; the authenticator's item 1 still holds without it.
 
@@ -211,7 +211,7 @@ The Ticket issuer MUST base each Ticket on reliable state evidence: a fresh `Sta
 
 **Replay and time boundary:** every Ticket becomes unusable once any signature on its slot commits. A Ticket carries no time limit: an unused Ticket stays valid until the next signature on the slot, and the enterprise revokes it by having another signature made or by Reset. Timeliness comes from issuance-time checks and from the messages themselves (the KEL head binding and `dt` in `exn`/`rpy`). Recipients SHOULD still enforce request-level anti-replay as defense in depth.
 
-**Time boundaries:** three independent limits apply, and none of them applies to archiving a result. (1) The freshness of a Ticket decision gates only the issuance of a Ticket. (2) The enterprise's window for an unused Ticket starts when the Ticket is signed, gates the delivery of the Ticket to a platform and the automatic dispatch of the resulting signature, and is not shortened by the remaining lifetime of an approval. (3) The validity of the message itself (`dt` in `exn`/`rpy`), checked against an enterprise maximum age, gates the sending of a signed message. A signature archived outside the window of (2) is dispatched only after the decision rule is applied again to current facts (VCAP-EI §10.5).
+**Time boundaries:** three independent limits apply, and none of them applies to archiving a result. (1) The freshness of a Ticket decision gates only the issuance of a Ticket. (2) The enterprise's window for an unused Ticket starts when the Ticket is signed, gates the delivery of the Ticket to a platform and the automatic dispatch of the resulting signature, and is not shortened by the remaining lifetime of an approval. (3) The validity of the message itself (`dt` in `exn`/`rpy`), checked against an enterprise maximum age, gates the sending of a signed message. A signature archived outside the window of (2) is dispatched only after the decision rule is applied again to current facts (VCAP-EI §9.5).
 
 **Content checks and enterprise discretion:** A Ticket decision serves two functions. Its **content checks** (format, state, consistency with the AID's currently valid credentials, and, under `VAF-GROUP-1`, the group rules) are the control against induced signing on a displayless authenticator (Section 9.2); the issuer SHOULD perform them automatically from verifiable state. Any further restriction the enterprise applies to the employee's acts (for example permitted counterparties) is **enterprise discretion**: an internal control of the legal entity. Neither is visible to a verifier, and a signature does not show that an enterprise approved it. Authority to act for the legal entity is expressed by the vLEI credentials and their revocation (Section 7); a Ticket decision does not grant or withdraw it. Risk classes, rule sets and their audit are the subject of `VAF-POLICY-1` (Section 11.3).
 
@@ -237,7 +237,7 @@ When a response to `Sign`, `UploadEnd`, `CreateIdentity` or `PrepareRotation` is
 
 Every signature, including `EXN` and `RPY`, advances the slot's signature counter, so a `StateProof` shows whether a Ticket was used. The authenticator keeps the most recent signature of each slot; while no later signature has been made, a lost non-KEL response is retrieved with `Recover`. Older non-KEL signatures come only from the platform Outbox and the enterprise archive. A platform therefore MUST NOT obtain a new signature on a slot while a non-KEL signature it obtained on that slot is not yet archived.
 
-The Enterprise Service MUST archive every non-KEL result that verifies against a Ticket it issued, whatever the state of approvals, time windows or the employee's authority, and MUST decide separately whether to send it (VCAP-EI §10.4, §10.5). A signed message that will not be sent, or a Ticket whose signature cannot be recovered, is terminated with its record kept and the slot's signature counter reconciled, after which the slot is used normally (VCAP-EI §10.6). Recovery of operations that span several messages is outside VAF 1.0 (Section 1.2).
+The Enterprise Service MUST archive every non-KEL result that verifies against a Ticket it issued, whatever the state of approvals, time windows or the employee's authority, and MUST decide separately whether to send it (VCAP-EI §9.4, §9.5). A signed message that will not be sent, or a Ticket whose signature cannot be recovered, is terminated with its record kept and the slot's signature counter reconciled, after which the slot is used normally (VCAP-EI §9.6). Recovery of operations that span several messages is outside VAF 1.0 (Section 1.2).
 
 Under `VAF-GROUP-1`, a member signature on a group event advances the slot's signature counter and replaces the slot's group record for that group AID. A `StateProof` requested with the group AID reports the record, and `Recover` returns its signature until a later event of the same group AID replaces it, also after later signatures of other kinds. Older member signatures come from the platform Outbox and the enterprise archive (VCAP §12.3). A `GROUP_EXN` signature does not change the group record and is recovered as an `EXN`.
 
@@ -263,7 +263,7 @@ A Platform that learns that an AID is inactive MUST stop requesting Tickets and 
 
 A Verifier MUST evaluate a presentation by an affected AID according to the current status of its credentials (Section 8.3).
 
-An unused Ticket issued before the event remains acceptable to the authenticator until the slot's next signature (Section 5.3). Step 1 keeps such Tickets from being delivered, and recipients reject messages whose own validity (`dt`) has passed. A message signed before the event but not yet sent is still archived by the Enterprise Service, and is never sent; one whose delivery had started is reconciled, not recalled (VCAP-EI §10.7).
+An unused Ticket issued before the event remains acceptable to the authenticator until the slot's next signature (Section 5.3). Step 1 keeps such Tickets from being delivered, and recipients reject messages whose own validity (`dt`) has passed. A message signed before the event but not yet sent is still archived by the Enterprise Service, and is never sent; one whose delivery had started is reconciled, not recalled (VCAP-EI §9.7).
 
 ## 7. vLEI credential interaction and presentation
 
@@ -396,13 +396,13 @@ These profiles are not specified by VAF 1.0; a product can claim one only after 
 
 | ID | Class | Requirement | Evidence or limit |
 | --- | --- | --- | --- |
-| VAF-GROUP-01 | Authenticator | Group member signing of VCAP §2.1, declared by GetInfo option `vcapGroup` | VCAP §§ 7.1, 7.7 kinds 7, 8 and 9 |
+| VAF-GROUP-01 | Authenticator | Group member signing of VCAP §2.1, declared by GetInfo option `vcapGroup` | VCAP §§ 7.1, 7.7 kinds 6, 7 and 8 |
 | VAF-GROUP-02 | Authenticator | Member key and next-key commitment binding in group `icp` / `rot` | VCAP §8.4.4 item 4 |
-| VAF-GROUP-03 | Authenticator | At most one event per (slot, group AID, sequence number), increasing sequence numbers, prior-SAID check for the following sequence number, `GROUP_SUPERSEDE` only at the record's own sequence number with the same prior event and at most once per sequence number, or to reuse an abandoned inception record; `GROUP_EXN` only for a recorded group AID; group records committed atomically with the slot | VCAP §8.4.4 items 5–6, §8.5.4, §8.7 |
+| VAF-GROUP-03 | Authenticator | At most one event per (slot, group AID, sequence number), increasing sequence numbers, prior-SAID check for the following sequence number, `GROUP_SUPERSEDE` only at the record's own sequence number with the same prior event and at most once per sequence number, or to reuse an abandoned inception record; `GROUP_EXN` only for a recorded group AID; group records committed atomically with the slot | VCAP §8.4.4 items 5–6, §8.5.3, §8.7 |
 | VAF-GROUP-04 | Authenticator | Group record state in `StateProof` and recovery of the recorded signature | VCAP §§ 7.4.2, 7.8, 9.3 |
-| VAF-GROUP-05 | Enterprise Service | Group Ticket issuance per VCAP §12.8 item 7 and VCAP-EI §§ 7.5, 7.15, including group messages (purposes 6, 20, 21) | VCAP-EI conformance tests |
+| VAF-GROUP-05 | Enterprise Service | Group Ticket issuance per VCAP §12.8 item 7 and VCAP-EI §§ 7.5, 7.15, including group messages (purposes 6, 16, 17) | VCAP-EI conformance tests |
 | VAF-GROUP-06 | Enterprise Service | `GROUP_SUPERSEDE` confined to a separately controlled role key, with a recorded determination per use | Audit records |
-| VAF-GROUP-07 | Platform, Enterprise Service | Group participation and per-stage status (member signed, threshold met, network accepted or delivered, abandoned) | VCAP §12.10, VCAP-EI §§ 7.17, 9.6 |
+| VAF-GROUP-07 | Platform, Enterprise Service | Group participation and per-stage status (member signed, threshold met, network accepted or delivered, abandoned) | VCAP §12.9, VCAP-EI §§ 7.17, 8.6 |
 | VAF-GROUP-08 | Enterprise Service, Platform | Device loss and Reset of a member: the affected member key is reported as lost to the other members, so that the group rotates it out | Section 6.5 item 7 |
 | VAF-GROUP-09 | Enterprise Service | A member's own rotation coordinated with the rotations of its groups | VCAP §12.8 item 7.7 |
 
@@ -443,7 +443,7 @@ An implementation claiming `VAF-GROUP-1` MUST in addition pass the following cas
 | GROUP-T02 | A group event whose `i` is the AID of any slot is rejected with `KEY_BINDING`. |
 | GROUP-T03 | Any event of the same group AID at the recorded or a lower sequence number, including the recorded event itself, is rejected with `INVALID_STATE` under kind `GROUP`. |
 | GROUP-T04 | An event at the following sequence number whose `p` is not the recorded SAID is rejected; an event at a later sequence number is signed. |
-| GROUP-T05 | `GROUP_SUPERSEDE` signs one replacement at the recorded sequence number, sets `replaced` and increments `supersedeCount`; a second replacement at the same sequence number, one at any other sequence number, and one without capability bit 15 are rejected. |
+| GROUP-T05 | `GROUP_SUPERSEDE` signs one replacement at the recorded sequence number, sets `replaced` and increments `supersedeCount`; a second replacement at the same sequence number, one at any other sequence number, and one without capability bit 14 are rejected. |
 | GROUP-T06 | A lost group response is resolved by a `StateProof` carrying the group record and the exact `Recover` result, also after a later EXN signature. |
 | GROUP-T07 | A third group AID on one slot is rejected with `NO_SPACE`, and a group AID already recorded on another slot with `KEY_BINDING`; power loss during a group signature leaves the slot with both its counter and its group record either before or after the signature; Reset deletes all group records. |
 | GROUP-T08 | The Enterprise Service refuses a second original for the same (group AID, sequence number) and a group event that does not extend the accepted key state. |
@@ -469,7 +469,7 @@ Changes to VAF identity and security semantics, VCAP command bytes or transport 
 
 **Change log.**
 
-- **11 November 2026, Candidate Specification.** Archiving of a verified signature separated from dispatch admission and delivery (VCAP-EI §§ 6.3, 7.9, 7.18, 7.19, 10.4–10.7; VAF §§ 2.3, 5.3, 6.3; VCAP §12.2, §12.8 item 8). The WebAuthn route removed (formerly VCAP §7.14; VCAP §12.9 and VCAP-EI §8 are now Reserved); the TrustConfig field that listed its RP IDs is now `reserved` and is the empty array (VCAP §9.1); test vectors regenerated (VCAP Appendix E). Purpose 13 withdrawn (VCAP-EI Appendix B). The maximum message age bounded by what receivers accept (VCAP-EI §10.5 item 5). Conformance test GROUP-T14 for groups with an independent software member added (VAF Section 12). License, intellectual-property and change-control terms added.
+- **11 November 2026.** Candidate Specification; first published version.
 
 ## A. Traceability to VCAP 1.0 (informative)
 
@@ -485,7 +485,7 @@ Changes to VAF identity and security semantics, VCAP command bytes or transport 
 | Conformance classes and optional features | § 2.1 |
 | KERI event syntax and encodings | §§ 6.2, 6.4, 8.4.3 |
 | Transport | § 11 (11.1 message encoding, 11.2 CTAPHID, 11.3 NFC, 11.4 USB CCID) |
-| Group member signing (`VAF-GROUP-1`) | §§ 5.2, 7.4.2, 7.7, 7.8, 8.4.4, 8.5.4, 8.7, 9.3, 9.4, 12.3, 12.8 item 7, 12.10, 13.1, 13.2 item 8 |
+| Group member signing (`VAF-GROUP-1`) | §§ 5.2, 7.4.2, 7.7, 7.8, 8.4.4, 8.5.3, 8.7, 9.3, 9.4, 12.3, 12.8 item 7, 12.9, 13.1, 13.2 item 8 |
 | Delegation and IPEX boundaries | §§ 8.4.2, 8.5, 12.3 |
 
 ## B. References
