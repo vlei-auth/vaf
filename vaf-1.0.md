@@ -1,6 +1,6 @@
 # vLEI Authenticator Framework (VAF) — Version 1.0
 
-*Candidate Specification — 11 November 2026*
+*Candidate Specification — 13 November 2026*
 
 **Specification identifier:** VAF-1.0  
 **URL:** https://vlei-auth.github.io/vaf/  
@@ -434,6 +434,8 @@ Byte-exact test vectors for the derivations and structures of VCAP Sections 6, 8
 | BASE-T18 | The Enterprise Service records each delivery attempt before it starts; after a restart, an operation without a recorded attempt is undelivered and one with an attempt but no result is `IN_DOUBT` and is resolved by redelivering identical bytes. |
 | BASE-T19 | A platform holding a non-KEL signature that is not yet archived refuses to obtain another signature on the same slot. |
 | BASE-T20 | A Ticket issued after a review keeps the full enterprise window, and a Ticket is not issued before the material check of VCAP-EI §7.18 reports ready. |
+| BASE-T21 | While one request for a slot awaits review, a second request for the same slot is decided and can be signed and dispatched; after the second signature is archived, the first request, once approved, receives a reissued Ticket for its unchanged original without a second approval. |
+| BASE-T22 | A request under review withdrawn by its requester with `message-close` receives no Ticket; a withdrawal by any other principal is refused. |
 
 An implementation claiming `VAF-GROUP-1` MUST in addition pass the following cases:
 
@@ -470,6 +472,7 @@ Changes to VAF identity and security semantics, VCAP command bytes or transport 
 **Change log.**
 
 - **11 November 2026.** Candidate Specification; first published version.
+- **13 November 2026.** Candidate revision: BASE-T21 and BASE-T22 for independent requests on one slot and withdrawal of a request under review (VCAP-EI §7.5, §7.19).
 
 ## A. Traceability to VCAP 1.0 (informative)
 
