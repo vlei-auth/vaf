@@ -18,7 +18,7 @@ This specification defines an interoperable hardware-backed authenticator model 
 
 ## Status of this document
 
-This is a **Candidate Specification** of VAF 1.0, dated 11 November 2026. Its features are frozen: until it becomes final it changes only to correct errors, remove ambiguity, or resolve findings of the review below, and every such change is listed in the change log. It becomes the final 1.0 when (1) at least one Enterprise Service and one Platform, written independently of each other's code, pass the VAF conformance tests including VAF BASE-T15–T20 on real authenticators; (2) an implementation written only from these documents reproduces the test vectors of VCAP Appendix E and completes a signature and its archiving; and (3) an independent security review of VCAP, VCAP-EI and VAF has been completed and its findings resolved. Comments and errata are submitted as issues at <https://github.com/vlei-auth/vaf/issues>.
+This is a **Candidate Specification** of VAF 1.0, dated 14 November 2026. Its features are frozen: until it becomes final it changes only to correct errors, remove ambiguity, or resolve findings of the review below, and every such change is listed in the change log. It becomes the final 1.0 when (1) at least one Enterprise Service and one Platform, written independently of each other's code, pass the VAF conformance tests including VAF BASE-T15–T20 on real authenticators; (2) an implementation written only from these documents reproduces the test vectors of VCAP Appendix E and completes a signature and its archiving; and (3) an independent security review of VCAP, VCAP-EI and VAF has been completed and its findings resolved. Comments and errata are submitted as issues at <https://github.com/vlei-auth/vaf/issues>.
 
 ## License and Intellectual Property
 
@@ -73,7 +73,7 @@ VAF conformance is a claim about this specification only. GLEIF qualification an
 - **Authenticator:** an external hardware unit holding its attestation identity and exactly four independently stateful key slots in the initial profile.
 - **Platform:** an untrusted client of the authenticator, responsible for preparing the actual message, maintaining an Outbox and contacting external services.
 - **Manufacturer:** provisions the device attestation identity and issues its leaf certificate.
-- **Enterprise administrator:** verifies manufactured device identity, binds the tenant and enterprise root, and provisions the enterprise-signed `TrustConfig`.
+- **Enterprise administrator:** verifies manufactured device identity, binds the tenant and enterprise root, and provisions and updates the enterprise-signed `TrustConfig`.
 - **Ticket issuer:** validates device state and the requested action, persists the message, and signs a single-use Ticket that authorizes one digest-bound cryptographic operation.
 - **KERI agent / infrastructure:** validates and publishes key events, collects witness receipts and tracks network state; may provide Signify/KERIA-compatible application functionality.
 - **Credential verifier:** validates the ACDC/vLEI issuance chain, holder proof, disclosure, status and required anchoring.
@@ -174,7 +174,7 @@ The authenticator MUST treat missing or corrupted data in previously initialized
 
 ### 4.2 Personalization and enterprise governance
 
-The authenticator MUST verify `TrustConfig` against the bound enterprise root, the device identifier, tenant and current reset epoch. `TrustConfig` contains an owner mask, a minimum PIN length, and 1–8 role public keys with their capability masks (VCAP §9.1). An enterprise that uses only WORK identities sets an owner mask without CLIENT. Personalization happens once per reset epoch and is performed by the enterprise with the device under its control. The PIN SHOULD be set by the employee on their own platform, so the enterprise hands the device over in `PERSONALIZED_NO_PIN` and never learns the PIN (VCAP §12.5). After a Reset, personalization for the new epoch is again performed by the enterprise. Changing role keys or enterprise policy requires a Reset followed by a new Personalize. An Enterprise Service MUST document the resulting emergency-revocation and service-availability procedures.
+The authenticator MUST verify `TrustConfig` against the bound enterprise root, the device identifier, tenant and current reset epoch. `TrustConfig` contains an owner mask, a minimum PIN length, and 1–8 role public keys with their capability masks (VCAP §9.1). An enterprise that uses only WORK identities sets an owner mask without CLIENT. Personalization happens once per reset epoch and is performed by the enterprise with the device under its control. The PIN SHOULD be set by the employee on their own platform, so the enterprise hands the device over in `PERSONALIZED_NO_PIN` and never learns the PIN (VCAP §12.5). After a Reset, personalization for the new epoch is again performed by the enterprise. Within a reset epoch, role keys, capability masks, the owner mask, the minimum PIN length and extensions are changed with `UpdateTrustConfig`: the enterprise signs a successor configuration that names the configuration it replaces, and the employee installs it with the PIN and a touch, keeping all identities, keys and signature counters (VCAP §7.12, §12.10). Changing the enterprise root requires a Reset followed by a new `BindEnterprise` and `Personalize`. An Enterprise Service MUST document the resulting emergency-revocation and service-availability procedures, including how long devices may keep a withdrawn role key until their holders install the update.
 
 ### 4.3 PIN and UP
 
@@ -184,7 +184,7 @@ A platform MUST present a touch to the user as confirmation of presence and MUST
 
 ### 4.4 Reset and retirement
 
-A physical reset MUST delete the PIN record, all slot private keys (including pre-rotation historical keys) and all FIDO credentials, increment `resetEpoch`, remove the enterprise binding and personalized state, and retain the attestation identity and `resetEpoch`. `resetEpoch` never decreases, including across a later `BindEnterprise`, so configuration and Tickets of an earlier epoch never become valid again. Reset defines no intermediate state: an interrupted reset is repeated by the user, and MUST NOT leave a slot key of the old epoch usable (VCAP §7.12.2). Deletion is logical; keys may remain on the storage medium (VCAP §13.2 item 10). Reset acts only on the device: the Enterprise Service MUST separately invalidate earlier Tickets, user roles, active sessions and network identities per Section 6.5.
+A physical reset MUST delete the PIN record, all slot private keys (including pre-rotation historical keys) and all FIDO credentials, increment `resetEpoch`, remove the enterprise binding and personalized state, and retain the attestation identity and `resetEpoch`. `resetEpoch` never decreases, including across a later `BindEnterprise`, so configuration and Tickets of an earlier epoch never become valid again. Reset defines no intermediate state: an interrupted reset is repeated by the user, and MUST NOT leave a slot key of the old epoch usable (VCAP §7.13.2). Deletion is logical; keys may remain on the storage medium (VCAP §13.2 item 10). Reset acts only on the device: the Enterprise Service MUST separately invalidate earlier Tickets, user roles, active sessions and network identities per Section 6.5.
 
 ## 5. Enterprise authorization model
 
@@ -323,7 +323,7 @@ Before a PIN is set, the device also answers an unauthenticated request with a s
 
 Device reset, loss of PIN access, KERI identity retirement, vLEI credential revocation and enterprise session revocation are distinct events. The Enterprise Service MUST coordinate them per Section 6.5; off-device revocation is performed by the enterprise and credential issuers. Pre-rotation private keys remain in raw storage until Reset, and operators MUST evaluate that residual risk.
 
-The enterprise root key is fixed on a device by `BindEnterprise` and the role keys by `Personalize`; within a reset epoch they change only through Reset or device replacement. Compromise of the enterprise root key, or of a role key that cannot be withdrawn otherwise, therefore requires Reset or replacement of every affected device. The Enterprise Service MUST protect these keys accordingly and MUST stop issuing Tickets under a compromised key.
+The enterprise root key is fixed on a device by `BindEnterprise` until Reset. Role keys are installed by `Personalize` and changed within a reset epoch by `UpdateTrustConfig`, which takes effect on a device only when its holder installs it (VCAP §12.10). A compromised role key is therefore withdrawn by refusing Tickets under it at once and by an update on every affected device; compromise of the enterprise root key requires Reset or replacement of every affected device, and the enterprise root key SHOULD be kept offline. The Enterprise Service MUST protect these keys accordingly and MUST stop issuing Tickets under a compromised key.
 
 ### 9.5 Attestation trust
 
@@ -333,13 +333,13 @@ Enterprise enrollment MUST verify the attestation chain against the manufacturer
 
 ### 10.1 Abstract authenticator interface
 
-VAF relies on these VCAP commands: `GetInfo`, `ClientPIN`, `Cancel`, `GetState`, `CreateIdentity`, `PrepareRotation`, `Sign`, `Recover`, `UploadBegin`/`UploadChunk`/`UploadEnd`, `BindEnterprise`, `Personalize` and `Reset`. VCAP assigns their command numbers and specifies exact parameters, error semantics, framing, context isolation and loss-of-response handling. `GetInfo`, `ClientPIN` and `Reset` use the CTAP command codes; the other commands use the CTAP vendor command range.
+VAF relies on these VCAP commands: `GetInfo`, `ClientPIN`, `Cancel`, `GetState`, `CreateIdentity`, `PrepareRotation`, `Sign`, `Recover`, `UploadBegin`/`UploadChunk`/`UploadEnd`, `BindEnterprise`, `Personalize`, `UpdateTrustConfig` and `Reset`. VCAP assigns their command numbers and specifies exact parameters, error semantics, framing, context isolation and loss-of-response handling. `GetInfo`, `ClientPIN` and `Reset` use the CTAP command codes; the other commands use the CTAP vendor command range.
 
 ### 10.2 Transport bindings
 
 A conforming VAF authenticator MUST implement at least one VCAP transport: CTAPHID over USB HID, the CTAP NFC binding, or USB CCID, which carries the APDUs of the CTAP NFC binding over a contact smart-card interface reachable through the operating system's smart-card service (VCAP §11.4). The authenticator presents itself to the platform as a FIDO device and lists its transports and `"VCAP_1_0"` in GetInfo.
 
-VAF 1.0 defines no route by which a web page reaches the VCAP operations; an enterprise web application uses the authenticator through a platform that implements VCAP. The authenticator also implements the standard CTAP operations and serves as a FIDO2 security key for WebAuthn sign-in; those FIDO credentials are separate from the KERI slots and are not attested with the VCAP attestation key (VCAP §7.13).
+VAF 1.0 defines no route by which a web page reaches the VCAP operations; an enterprise web application uses the authenticator through a platform that implements VCAP. The authenticator also implements the standard CTAP operations and serves as a FIDO2 security key for WebAuthn sign-in; those FIDO credentials are separate from the KERI slots and are not attested with the VCAP attestation key (VCAP §7.14).
 
 ### 10.3 Sharing the authenticator with generic FIDO clients
 
@@ -367,7 +367,7 @@ An implementation claiming `VAF-BASE-1` MUST satisfy the following requirements 
 | --- | --- | --- | --- |
 | VAF-BASE-01 | Authenticator | Authenticator-generated, non-exportable Ed25519 identity keys | `CreateIdentity`, KERI `icp` binding |
 | VAF-BASE-02 | Authenticator | Four isolated CLIENT/WORK slots, constrained operations | `GetState`, allowed owner/kind matrix |
-| VAF-BASE-03 | Authenticator | Enterprise binding until Reset and signed TrustConfig | `BindEnterprise`, `Personalize` |
+| VAF-BASE-03 | Authenticator | Enterprise binding until Reset and signed TrustConfig, replaced only by its signed successor | `BindEnterprise`, `Personalize`, `UpdateTrustConfig` |
 | VAF-BASE-04 | Authenticator | PIN token authorization and a new UP for each signature, with a touch sensor and presence indicator | `ClientPIN`, `Sign`, `UploadEnd` |
 | VAF-BASE-05 | Authenticator | Challenge-bound signed device state | `GetState` / `StateProof` |
 | VAF-BASE-06 | Authenticator | Message- and key-bound enterprise Ticket enforcement | Ticket verification and `KeyRef` |
@@ -436,6 +436,7 @@ Byte-exact test vectors for the derivations and structures of VCAP Sections 6, 8
 | BASE-T20 | A Ticket issued after a review keeps the full enterprise window, and a Ticket is not issued before the material check of VCAP-EI §7.18 reports ready. |
 | BASE-T21 | While one request for a slot awaits review, a second request for the same slot is decided and can be signed and dispatched; after the second signature is archived, the first request, once approved, receives a reissued Ticket for its unchanged original without a second approval. |
 | BASE-T22 | A request under review withdrawn by its requester with `message-close` receives no Ticket; a withdrawal by any other principal is refused. |
+| BASE-T23 | `UpdateTrustConfig` with the successor of the installed configuration, a MANAGE token and a touch replaces the configuration and keeps the PIN, slots, heads and signature counters; an envelope that is not the successor, including a previously installed one, is rejected with `CONFIG_MISMATCH`; power loss at any point leaves exactly the old or the new configuration; an unused Ticket whose role or capability the update withdrew is rejected with `TICKET_INVALID`. |
 
 An implementation claiming `VAF-GROUP-1` MUST in addition pass the following cases:
 
@@ -471,15 +472,14 @@ Changes to VAF identity and security semantics, VCAP command bytes or transport 
 
 **Change log.**
 
-- **11 November 2026.** Candidate Specification; first published version.
-- **13 November 2026.** Candidate revision: BASE-T21 and BASE-T22 for independent requests on one slot and withdrawal of a request under review (VCAP-EI §7.5, §7.19).
+- **14 November 2026.** Candidate Specification; first published version.
 
 ## A. Traceability to VCAP 1.0 (informative)
 
 | VAF topic | VCAP 1.0 sections |
 | --- | --- |
 | Goals and threat model | §§ 1, 4.1, 13.1–13.2 |
-| Lifecycle and reset | §§ 4.2, 5, 7.10–7.12, 12.5–12.7 |
+| Lifecycle and reset | §§ 4.2, 5, 7.10–7.13, 12.5–12.7, 12.10 |
 | KERI slot and key state | §§ 5.2, 6.3–6.4, 7.5–7.7, 8.4, 8.7 |
 | PIN, token and user presence | §§ 5.3, 7.2, 8.1–8.2 |
 | Ticket, roles and attestation | §§ 7.4, 8.3, 9.1–9.4, 12.8, Appendix B |
