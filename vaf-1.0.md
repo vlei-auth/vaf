@@ -1,6 +1,6 @@
 # vLEI Authenticator Framework (VAF) — Version 1.0
 
-*Candidate Specification — 13 November 2026*
+*Candidate Specification — 15 November 2026*
 
 **Specification identifier:** VAF-1.0  
 **URL:** https://vlei-auth.github.io/vaf/  
@@ -18,7 +18,7 @@ This specification defines an interoperable hardware-backed authenticator model 
 
 ## Status of this document
 
-This is a **Candidate Specification** of VAF 1.0, dated 14 November 2026. Its features are frozen: until it becomes final it changes only to correct errors, remove ambiguity, or resolve findings of the review below, and every such change is listed in the change log. It becomes the final 1.0 when (1) at least one Enterprise Service and one Platform, written independently of each other's code, pass the VAF conformance tests including VAF BASE-T15–T20 on real authenticators; (2) an implementation written only from these documents reproduces the test vectors of VCAP Appendix E and completes a signature and its archiving; and (3) an independent security review of VCAP, VCAP-EI and VAF has been completed and its findings resolved. Comments and errata are submitted as issues at <https://github.com/vlei-auth/vaf/issues>.
+This is a **Candidate Specification** of VAF 1.0, dated 15 November 2026. Its features are frozen: until it becomes final it changes only to correct errors, remove ambiguity, or resolve findings of the review below, and every such change is listed in the change log. It becomes the final 1.0 when (1) at least one Enterprise Service and one Platform, written independently of each other's code, pass the VAF conformance tests including VAF BASE-T15–T20 on real authenticators; (2) an implementation written only from these documents reproduces the test vectors of VCAP Appendix E and completes a signature and its archiving; and (3) an independent security review of VCAP, VCAP-EI and VAF has been completed and its findings resolved. Comments and errata are submitted as issues at <https://github.com/vlei-auth/vaf/issues>.
 
 ## License and Intellectual Property
 
@@ -178,7 +178,7 @@ The authenticator MUST verify `TrustConfig` against the bound enterprise root, t
 
 ### 4.3 PIN and UP
 
-The device MUST enforce its own PIN retry limits with durable failed-attempt accounting, and MUST receive the PIN encrypted under CTAP `pinUvAuthProtocol 2` (P-256 ECDH, HKDF-SHA-256, AES-256-CBC, HMAC-SHA-256), which VCAP `ClientPIN` uses unchanged. An authenticator MAY in addition offer `pinUvAuthProtocol 1` to standard FIDO clients; VCAP permissions are granted only under protocol 2 (VCAP §7.2). VCAP 1.0 uses the CTAP PIN retry and power-cycle lockout rules, and adds `READ`, `SIGN` and `MANAGE` token permissions above the CTAP permission bits. PIN-derived material and tokens MUST be discarded when the context ends. Every signature by a slot key (`Sign` or `UploadEnd`) MUST consume its own new user action, either a sensor press or, over NFC, the tap into the reader's field (one tap per field session); over USB HID and USB CCID the action is always a sensor press. `BindEnterprise` and `Personalize` also require a touch, and `Reset` requires a 5-second hold. The authenticator MUST have a touch sensor and a presence indicator light (VCAP §8.2).
+The device MUST enforce its own PIN retry limits with durable failed-attempt accounting, and MUST receive the PIN encrypted under CTAP `pinUvAuthProtocol 2` (P-256 ECDH, HKDF-SHA-256, AES-256-CBC, HMAC-SHA-256), which VCAP `ClientPIN` uses unchanged. An authenticator MAY in addition offer `pinUvAuthProtocol 1` to standard FIDO clients; VCAP permissions are granted only under protocol 2 (VCAP §7.2). VCAP 1.0 uses the CTAP PIN retry and power-cycle lockout rules, and adds `READ`, `SIGN` and `MANAGE` token permissions above the CTAP permission bits. PIN-derived material and tokens MUST be discarded when the context ends. A platform MAY hold the PIN the user entered for one confirmed operation that needs several contexts, for example several NFC taps, and MUST then observe the limits of VCAP §12.1 item 8 (memory only, cleared at the end of the operation, on leaving the foreground and at the latest 120 s after its last use, never for setPIN or changePIN, and stopped at the first PIN error); it MUST NOT keep the PIN beyond that operation. Every signature by a slot key (`Sign` or `UploadEnd`) MUST consume its own new user action, either a sensor press or, over NFC, the tap into the reader's field; over USB HID and USB CCID the action is always a sensor press. Over NFC the tap is the only user action for a signature: one tap satisfies one request, and a further UP-requiring request in the same field session is refused with `UP_REQUIRED` (VCAP §8.2). The single exception is a group member's coordination message whose Ticket the enterprise links to the member signature made immediately before it in the same context: it takes over that signature's user action, so one user action yields at most two signatures (VCAP §8.2 step 1, §9.2). `BindEnterprise` and `Personalize` also require a touch, and `Reset` requires a 5-second hold. The authenticator MUST have a touch sensor and a presence indicator light (VCAP §8.2).
 
 A platform MUST present a touch to the user as confirmation of presence and MUST NOT present it as approval of message content. Assurance for message content comes from content confirmation outside the authenticator and from the Ticket issuer's approval (Section 9.2).
 
@@ -202,10 +202,10 @@ In VCAP 1.0, a Ticket is an enterprise role-key signature, under domain tag `VCA
 
 ```text
 [version, kind, signerKeyRef, signCounter,
- originalDigest, originalLength]
+ originalDigest, originalLength, ?linkedDigest]
 ```
 
-The authenticator derives `KeyRef` from its own verified slot state: device identity, reset epoch, slot, owner and the **actual** signing public key (`old.next` for `ROT`, `current` otherwise), and compares it with `signerKeyRef`. The digest binds the Ticket to exact bytes. `signCounter` is the value the slot's persistent signature counter will take with this signature; the authenticator accepts the Ticket only when the counter currently equals `signCounter − 1`, and advances it in the same atomic commit as the signature. Each Ticket is therefore usable once, independent of any transport session, and can be obtained before the authenticator is connected.
+The authenticator derives `KeyRef` from its own verified slot state: device identity, reset epoch, slot, owner and the **actual** signing public key (`old.next` for `ROT`, `current` otherwise), and compares it with `signerKeyRef`. The digest binds the Ticket to exact bytes. `signCounter` is the value the slot's persistent signature counter will take with this signature; the authenticator accepts the Ticket only when the counter currently equals `signCounter − 1`, and advances it in the same atomic commit as the signature. Each Ticket is therefore usable once, independent of any transport session, and can be obtained before the authenticator is connected. The optional `linkedDigest` occurs only in a kind 4 Ticket for a group coordination message and names the member signature whose user action it takes over (VCAP §9.2); it changes nothing else about the Ticket.
 
 The Ticket issuer MUST base each Ticket on reliable state evidence: a fresh `StateProof` bound to its own single-use challenge, or an archived original signature together with network-accepted head progression. It MUST persist the requested message before signing the Ticket, and check its semantics and risk. When it issues a replacement Ticket for a counter value whose earlier Ticket went unused, it treats the earlier Ticket as still usable until the counter advances. The issuer learns the counter from archived signatures or a `StateProof`.
 
@@ -283,7 +283,7 @@ A WORK slot signs any `exn` message whose `i` equals the slot AID, so an off-dev
 
 ### 8.1 Platform
 
-Platforms MUST submit a `StateProof` with the Ticket request whenever their knowledge of the slot head or counter is uncertain; write the message to the Outbox after receiving the Ticket and before sending `Sign`; verify the returned signature and signer key; recover lost responses through state comparison (Section 6.2); report transport success and application success separately, and report separately whether the next step waits for the user or for another party; not make the user responsible for an enterprise time window, by requiring the authenticator only once a Ticket is available; and clear PIN, shared secrets and tokens when the session ends. After a transport reconnection the platform establishes a new context and token, and determines the outcome of any in-flight operation through `GetState`.
+Platforms MUST submit a `StateProof` with the Ticket request whenever their knowledge of the slot head or counter is uncertain; write the message to the Outbox after receiving the Ticket and before sending `Sign`; verify the returned signature and signer key; recover lost responses through state comparison (Section 6.2); report transport success and application success separately, and report separately whether the next step waits for the user or for another party; not make the user responsible for an enterprise time window, by requiring the authenticator only once a Ticket is available; and clear PIN, shared secrets and tokens when the session ends, or for a PIN held for one operation under VCAP §12.1 item 8 when that operation ends. A platform MUST perform at most one UP-requiring operation per NFC field session, two with a linked Ticket, and MUST tell the user before the PIN entry how many taps an operation needs. After a transport reconnection the platform establishes a new context and token, and determines the outcome of any in-flight operation through `GetState`.
 
 ### 8.2 Ticket issuer
 
@@ -309,7 +309,7 @@ The initial profile keeps private keys inside the authenticator interface. Each 
 
 ### 9.2 Authorization and social engineering
 
-On a displayless authenticator the user's touch confirms presence, and review of the message content takes place off-device. Enterprise approval of message content is therefore a critical control. An attacker who controls the platform and a Ticket-issuer role key, and persuades a legitimate user to touch, can obtain well-formed signatures on unintended content. Authenticator product documentation MUST state that a touch establishes user presence and that content review takes place off-device.
+On a displayless authenticator the user's touch confirms presence, and review of the message content takes place off-device. Enterprise approval of message content is therefore a critical control. An attacker who controls the platform and a Ticket-issuer role key, and persuades a legitimate user to touch, can obtain well-formed signatures on unintended content. Authenticator product documentation MUST state that a touch establishes user presence and that content review takes place off-device. A linked Ticket lets one touch cover a member signature and the coordination message that carries it; the enterprise links only that message (VCAP-EI §9.3 item 6), so the shared touch confirms no other content.
 
 `CreateIdentity` requires a PIN token but no Ticket. A platform that holds the PIN can therefore occupy UNUSED slots until the next Reset; such a slot cannot sign without a Ticket. The Enterprise Service detects unexpected slots from `StateProof` (VCAP §13.2).
 
@@ -368,7 +368,7 @@ An implementation claiming `VAF-BASE-1` MUST satisfy the following requirements 
 | VAF-BASE-01 | Authenticator | Authenticator-generated, non-exportable Ed25519 identity keys | `CreateIdentity`, KERI `icp` binding |
 | VAF-BASE-02 | Authenticator | Four isolated CLIENT/WORK slots, constrained operations | `GetState`, allowed owner/kind matrix |
 | VAF-BASE-03 | Authenticator | Enterprise binding until Reset and signed TrustConfig, replaced only by its signed successor | `BindEnterprise`, `Personalize`, `UpdateTrustConfig` |
-| VAF-BASE-04 | Authenticator | PIN token authorization and a new UP for each signature, with a touch sensor and presence indicator | `ClientPIN`, `Sign`, `UploadEnd` |
+| VAF-BASE-04 | Authenticator | PIN token authorization and a new UP for each signature, with a touch sensor and presence indicator; over NFC one tap per UP-requiring request and `UP_REQUIRED` for a further one in the same field session | `ClientPIN`, `Sign`, `UploadEnd`; VCAP §8.2 |
 | VAF-BASE-05 | Authenticator | Challenge-bound signed device state | `GetState` / `StateProof` |
 | VAF-BASE-06 | Authenticator | Message- and key-bound enterprise Ticket enforcement | Ticket verification and `KeyRef` |
 | VAF-BASE-07 | Authenticator | Single-key, single-head KERI `ICP` / `IXN` / WORK `ROT` in the event syntax of VCAP §8.4.3 | Local KEL checks and atomic state |
@@ -419,7 +419,7 @@ Byte-exact test vectors for the derivations and structures of VCAP Sections 6, 8
 | BASE-T03 | An event carrying an externally generated `k` or `n` is rejected with `KEY_BINDING`. |
 | BASE-T04 | The issuer rejects a `StateProof` with the wrong device, reset epoch or challenge. |
 | BASE-T05 | A wrong Ticket digest, role capability, `KeyRef` or signature counter fails and releases no signature; a used Ticket cannot be used again. |
-| BASE-T06 | Each successful signature consumes a new touch; a touch already held when the request starts is ignored. |
+| BASE-T06 | Each successful signature consumes a new touch; a touch already held when the request starts is ignored. Over NFC, a second UP-requiring request in one field session returns `UP_REQUIRED` at once, produces no signature and changes no persistent state; in a new field session the same Ticket is signed. |
 | BASE-T07 | WORK ROT signs with `old.next`, commits the prepared next key and advances the head exactly once. |
 | BASE-T08 | A lost KEL response is resolved by state comparison and the exact `Recover` result. |
 | BASE-T09 | A lost EXN response is resolved by the slot's signature counter and `Recover` while no later signature exists, and otherwise only through the Outbox and enterprise archive. |
@@ -437,6 +437,9 @@ Byte-exact test vectors for the derivations and structures of VCAP Sections 6, 8
 | BASE-T21 | While one request for a slot awaits review, a second request for the same slot is decided and can be signed and dispatched; after the second signature is archived, the first request, once approved, receives a reissued Ticket for its unchanged original without a second approval. |
 | BASE-T22 | A request under review withdrawn by its requester with `message-close` receives no Ticket; a withdrawal by any other principal is refused. |
 | BASE-T23 | `UpdateTrustConfig` with the successor of the installed configuration, a MANAGE token and a touch replaces the configuration and keeps the PIN, slots, heads and signature counters; an envelope that is not the successor, including a previously installed one, is rejected with `CONFIG_MISMATCH`; power loss at any point leaves exactly the old or the new configuration; an unused Ticket whose role or capability the update withdrew is rejected with `TICKET_INVALID`. |
+| BASE-T24 | After a successful `UpdateTrustConfig` that does not set forcePINChange, the context and token remain and an authenticated `GetState` in it reports the new configurationDigest; one that sets forcePINChange closes the context, and the next token requires changePIN. |
+| BASE-T25 | `Sign` whose Ticket fails verification (`TICKET_INVALID` at VCAP §7.7 step 5) keeps the context and token: a following `Sign` with a valid Ticket succeeds without a new token, and over NFC consumes the still unused tap; `TICKET_INVALID` after the message or the UP zeroizes the context. |
+| BASE-T26 | A platform holding the PIN for one operation (VCAP §12.1 item 8) clears it at the end of the operation, on leaving the foreground and 120 s after its last use; stops at the first PIN error without another verification; checks getPinRetries after a transport ended during a verification; never uses the held PIN for setPIN, changePIN or MANAGE outside a confirmed configuration update; and never writes it to persistent storage or logs. |
 
 An implementation claiming `VAF-GROUP-1` MUST in addition pass the following cases:
 
@@ -456,6 +459,7 @@ An implementation claiming `VAF-GROUP-1` MUST in addition pass the following cas
 | GROUP-T12 | The Enterprise Service refuses a WORK `ROT` Ticket that would leave the slot outside the latest next-key commitment of one of its groups, and approves a joining member's signature on a group `rot` authorized by the other signers. |
 | GROUP-T13 | The platform encodes member signatures with the CESR codes of VCAP §9.4 for `icp`, `ixn`, `rot` with equal and different indices, a joining member's `rot`, and a group `exn`. |
 | GROUP-T14 | A group of two members, one using the authenticator and one using an independent software KERI implementation, completes a group `icp`, `ixn`, `rot` and a group `exn`, and each member accepts the other's signatures. |
+| GROUP-T15 | A kind 4 `Sign` with a Ticket linked to the GROUP, GROUP_SUPERSEDE, GROUP_EXN or RPY signature made immediately before it in the same context, on the same slot, is signed without a new user action; it requires a new user action (over NFC: `UP_REQUIRED`) when another command came between them, when the anchoring signature itself inherited its user action, in a new context, on another slot, or when `linkedDigest` differs; a seven-element Ticket body of a kind other than 4 is rejected with `INVALID_PARAMETER`. The Enterprise Service issues a linked Ticket only under `group-ticket-pair`, for the coordination `exn` embedding the original decided with it. |
 
 Transport tests additionally cover, for each declared transport, CTAPHID channel allocation, CCID card-session handling, multi-frame packet reconstruction, busy-state isolation between held and non-held contexts, keepalive and cancel semantics, NFC command chaining, negative framing tests and cross-transport transaction-recovery tests.
 
@@ -473,6 +477,7 @@ Changes to VAF identity and security semantics, VCAP command bytes or transport 
 **Change log.**
 
 - **14 November 2026.** Candidate Specification; first published version.
+- **15 November 2026.** Revision of the Candidate: over NFC the tap is the only user action and a second UP-requiring request per field session is refused (Section 4.3, VAF-BASE-04, BASE-T06); linked Tickets for group coordination messages (Sections 4.3, 5.3, 9.2, GROUP-T15); a platform may hold the PIN for one confirmed operation (Sections 4.3, 8.1, BASE-T26); new tests for the context kept after `UpdateTrustConfig` (BASE-T24) and after `TICKET_INVALID` from Ticket verification (BASE-T25).
 
 ## A. Traceability to VCAP 1.0 (informative)
 
@@ -481,8 +486,8 @@ Changes to VAF identity and security semantics, VCAP command bytes or transport 
 | Goals and threat model | §§ 1, 4.1, 13.1–13.2 |
 | Lifecycle and reset | §§ 4.2, 5, 7.10–7.13, 12.5–12.7, 12.10 |
 | KERI slot and key state | §§ 5.2, 6.3–6.4, 7.5–7.7, 8.4, 8.7 |
-| PIN, token and user presence | §§ 5.3, 7.2, 8.1–8.2 |
-| Ticket, roles and attestation | §§ 7.4, 8.3, 9.1–9.4, 12.8, Appendix B |
+| PIN, token and user presence | §§ 5.3, 7.2, 8.1–8.2, 10.1 (`UP_REQUIRED`), 12.1 items 8–9 |
+| Ticket, roles and attestation | §§ 7.4, 8.3, 9.1–9.4 (9.2 linked Tickets), 12.8, Appendix B |
 | Recovery and integration | §§ 7.8, 12.2–12.4 |
 | Status codes | § 10 |
 | Conformance classes and optional features | § 2.1 |
